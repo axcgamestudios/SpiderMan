@@ -16,7 +16,7 @@ loader.register(parser => {
 });
 const reports=[];
 for(const config of DISTRICTS){
- const bytes=await fs.readFile(new URL(`../public${config.model}`,import.meta.url));
+ const bytes=await fs.readFile(new URL(`../public/${config.model.replace(/^\//,"")}`,import.meta.url));
  const gltf=await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
  const embedded=[];gltf.scene.traverse(o=>{if(o instanceof THREE.SkinnedMesh)embedded.push(o);});for(const o of embedded)o.removeFromParent();
  const raw=new THREE.Box3().setFromObject(gltf.scene),sourceSize=raw.getSize(new THREE.Vector3());

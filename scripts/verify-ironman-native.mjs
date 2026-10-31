@@ -14,7 +14,7 @@ import { createTraversalState, stepTraversalInPlace } from '../lib/traversal-phy
 const loader = new GLTFLoader();
 loader.register(parser => { parser.loadTextureImage = () => Promise.resolve(new THREE.Texture()); return { name: 'TextureStub' }; });
 const suit = SUITS.find(suit => suit.id === 'ironman');
-const bytes = await fs.readFile(new URL(`../public${suit.model}`, import.meta.url));
+const bytes = await fs.readFile(new URL(`../public/${suit.model.replace(/^\//,"")}`, import.meta.url));
 const gltf = await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length), '');
 assert.equal(gltf.animations.length, 36, 'new animation pack missing');
 function create() {

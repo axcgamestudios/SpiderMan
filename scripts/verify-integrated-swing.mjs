@@ -222,7 +222,7 @@ function simulate(world, route, name) {
 }
 
 for (const config of DISTRICTS.filter(map => wanted.has(map.id))) {
-  const bytes = fs.readFileSync(new URL(`../public${config.model}`, import.meta.url));
+  const bytes = fs.readFileSync(new URL(`../public/${config.model.replace(/^\//,"")}`, import.meta.url));
   const gltf = await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
   const embedded = []; gltf.scene.traverse(object => { if (object instanceof THREE.SkinnedMesh) embedded.push(object); });
   for (const object of embedded) object.parent?.remove(object);

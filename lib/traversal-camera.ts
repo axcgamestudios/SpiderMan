@@ -19,7 +19,9 @@ export function constrainCameraBoom(target: THREE.Vector3, desired: THREE.Vector
 }
 
 /** Port of the reference's TraversalSpeedBlur shader. A clear center protects
- * the character and HUD; bounded acceleration pulses clear during steady air. */
+ * the character and HUD; bounded acceleration pulses clear during steady air.
+ * The same composite pass draws subtle screen-space sun rays: it scatters the
+ * bright sky around building silhouettes toward the projected sun position. */
 export class TraversalSpeedBlur {
   // samples: 4 keeps the offscreen pass antialiased like the direct pass, so
   // bursts do not pulse jagged skyline edges against the sky.
@@ -27,10 +29,15 @@ export class TraversalSpeedBlur {
   private scene = new THREE.Scene();
   private camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private material = new THREE.ShaderMaterial({
-    uniforms: { source: { value: this.target.texture }, strength: { value: 0 } },
+    uniforms: {
+      source: { value: this.target.texture },
+      strength: { value: 0 },
+      sunScreen: { value: new THREE.Vector2(.5, .5) },
+      rayStrength: { value: 0 },
+    },
     depthTest: false, depthWrite: false,
     vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.,1.); }',
-    fragmentShader: `uniform sampler2D source; uniform float strength; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D source; uniform float strength; uniform vec2 sunScreen; uniform float rayStrength; varying vec2 vUv;
       void main(){
         vec2 offset=vUv-vec2(.5,.46);
         vec2 radial=offset*strength*smoothstep(.14,.55,length(offset));
@@ -40,6 +47,24 @@ export class TraversalSpeedBlur {
         color+=texture2D(source,vUv-radial*3.)*.14;
         color+=texture2D(source,vUv-radial*4.)*.11;
         color+=texture2D(source,vUv-radial*5.)*.10;
+        if (rayStrength > .002) {
+          vec2 toSun=(sunScreen-vUv)/16.;
+          vec2 rayUv=vUv;
+          float decay=1.;
+          vec3 rays=vec3(0.);
+          for (int i=0;i<16;i++){
+            rayUv+=toSun;
+            vec3 s=texture2D(source,rayUv).rgb;
+            float lum=dot(s,vec3(.2126,.7152,.0722));
+            // Only brightness that sits near the sun on screen feeds the
+            // streaks, so distant lit facades never masquerade as light shafts.
+            float tapProximity=smoothstep(.55,.06,distance(rayUv,sunScreen));
+            rays+=s*smoothstep(.8,1.8,lum)*decay*tapProximity;
+            decay*=.925;
+          }
+          float proximity=smoothstep(1.25,.15,distance(vUv,sunScreen));
+          color.rgb+=rays*(rayStrength*.3*proximity)*vec3(1.,.82,.58);
+        }
         gl_FragColor=color;
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -53,6 +78,13 @@ export class TraversalSpeedBlur {
   private resolutionScale = .85;
   constructor() { this.scene.add(this.quad); }
   get strength() { return this.material.uniforms.strength.value as number; }
+  get rayStrength() { return this.material.uniforms.rayStrength.value as number; }
+  /** Screen-space sun position (UV) and the damped ray intensity for this frame. */
+  setSunRays(x: number, y: number, strength: number) {
+    const uniforms = this.material.uniforms;
+    (uniforms.sunScreen.value as THREE.Vector2).set(x, y);
+    uniforms.rayStrength.value = Number.isFinite(strength) ? Math.max(0, Math.min(1, strength)) : 0;
+  }
   update(delta: number, speed: number, burst: boolean, reducedMotion = false, gliding = false) {
     const acceleration = (speed - this.previousSpeed) / Math.max(delta, .001);
     this.previousSpeed = speed;
@@ -74,7 +106,7 @@ export class TraversalSpeedBlur {
   render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
     const previousTarget = renderer.getRenderTarget();
     // Idle renders once at native canvas resolution: no offscreen copy or resampling.
-    if (this.strength < .0001) { renderer.render(scene, camera); return; }
+    if (this.strength < .0001 && this.rayStrength < .002) { renderer.render(scene, camera); return; }
     // Three renders linear HDR into the target without tone mapping. The final
     // shader applies the same tone mapping and output conversion as direct render.
     // The atmosphere includes both chunks, so the sky follows this same color path.

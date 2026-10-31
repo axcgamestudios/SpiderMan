@@ -41,7 +41,7 @@ export const SWING_PARAMETERS: readonly SwingParameter[] = [
   p('swingJumpKick','Jump off the web','Extra lift when you jump out of a swing.','Release',0,15,.5,5),
   p('swingReleaseChargeSeconds','Release charge time','Hold duration for the full release assist.','Release',.4,2.5,.1,1.1),
   p('swingJumpForwardKick','Low swing jump boost','Jump at the bottom for forward speed; jump on the upswing for height.','Release',0,18,.5,7),
-  p('zipMaximumSpeed','Web zip speed','Maximum speed while pulling toward a perch or making an air zip.','Control',25,90,1,52),
+  p('zipMaximumSpeed','Web zip speed','Maximum speed while pulling toward a perch or making an air zip.','Control',25,90,1,60),
   p('traversalAirZip','Contextual air zip','Press E in the air without a web to zip toward your movement direction. Space jumps.','Control',0,1,1,1),
   p('traversalFlowRetention','Wall momentum retention','Speed retained when a swing flows onto a real facade.','Control',.3,1,.05,.9),
   p('traversalAimTimeScale','Perch aiming speed','Solo free-roam speed while aiming. Online play and races always remain real time.','Control',.15,1,.05,.35),

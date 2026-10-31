@@ -9,7 +9,7 @@ loader.register((parser) => {
   return { name: 'CPU' };
 });
 const load = async (url) => {
-  const bytes = await fs.readFile(`public${url}`);
+  const bytes = await fs.readFile(`public/${url.replace(/^\//,"")}`);
   return loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
 };
 for (const id of process.argv.slice(2)) {

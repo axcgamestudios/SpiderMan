@@ -9,7 +9,7 @@ import {
   WEB_STRAND_MODEL,
 } from '../lib/web-strand.ts';
 
-const bytes = await fs.readFile(`public${WEB_STRAND_MODEL}`);
+const bytes = await fs.readFile(`public/${WEB_STRAND_MODEL.replace(/^\//,"")}`);
 assert.equal(
   crypto.createHash('sha256').update(bytes).digest('hex'),
   'dc10e1e089add986da1e758a33438a286542a486834362320a75a328110331d2',

@@ -21,7 +21,7 @@ loader.register((p) => {
 });
 const reports = [];
 for (const config of DISTRICTS) {
-  const b = await fs.readFile(`public${config.model}`),
+  const b = await fs.readFile(`public/${config.model.replace(/^\//,"")}`),
     g = await loader.parseAsync(
       b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength),
       '',
@@ -94,7 +94,7 @@ for (const config of DISTRICTS) {
     output.add(mesh);
   }
   const glb = await new GLTFExporter().parseAsync(output, { binary: true });
-  await fs.writeFile(`public${config.horizonModel}`, Buffer.from(glb));
+  await fs.writeFile(`public/${config.horizonModel.replace(/^\//,"")}`, Buffer.from(glb));
   const report = {
     city: config.id,
     sourceTriangles: original,

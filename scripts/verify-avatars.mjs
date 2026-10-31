@@ -20,7 +20,7 @@ assert.equal(swingsRemaining(locked, readProgress()), 1);
 addSwingAttachment();
 assert.equal(isSuitUnlocked(locked, readProgress()), true);
 assert.equal(swingsRemaining(locked, readProgress()), 0);
-for (const suit of SUITS) assert.ok(fs.existsSync(new URL(`../public${suit.model}`, import.meta.url)), suit.model);
+for (const suit of SUITS) assert.ok(fs.existsSync(new URL(`../public/${suit.model.replace(/^\//,"")}`, import.meta.url)), suit.model);
 for (const old of [
   'advanced',
   'classic',

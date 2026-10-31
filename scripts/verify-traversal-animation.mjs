@@ -23,7 +23,7 @@ loader.register(parser => {
 const cache = new Map();
 async function load(model) {
   if (!cache.has(model)) cache.set(model, (async () => {
-    const data = await fs.readFile(new URL(`../public${model}`, import.meta.url));
+    const data = await fs.readFile(new URL(`../public/${model.replace(/^\//,"")}`, import.meta.url));
     return loader.parseAsync(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), '');
   })());
   return cache.get(model);

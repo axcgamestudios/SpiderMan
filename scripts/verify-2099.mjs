@@ -23,7 +23,7 @@ loader.register((parser) => {
   return { name: 'CPUTextureStub' };
 });
 async function load(url) {
-  const b = await fs.readFile(`public${url}`);
+  const b = await fs.readFile(`public/${url.replace(/^\//,"")}`);
   return loader.parseAsync(
     b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength),
     '',

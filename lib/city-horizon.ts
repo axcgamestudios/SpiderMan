@@ -52,10 +52,26 @@ export class CityHorizon {
     });
     const floor = full.children.find((o) => o.userData.walkableStreetSurface);
     if (floor instanceof THREE.Mesh) {
-      const geometry = floor.geometry.clone().applyMatrix4(floor.matrixWorld);
+      // Distant floor copies must never overlap each other or a full tile's
+      // floor: coplanar overlaps are what made the streets flicker. Rebuild
+      // the slab to the exact streaming cell (slightly inset, a hair lower)
+      // so every copy butts against its neighbours instead of z-fighting.
+      const floorSize = new THREE.Box3()
+        .setFromBufferAttribute(
+          floor.geometry.getAttribute('position') as THREE.BufferAttribute,
+        )
+        .getSize(new THREE.Vector3());
+      const geometry = new THREE.BoxGeometry(
+        Math.min(floorSize.x, width - 0.04),
+        floorSize.y,
+        Math.min(floorSize.z, depth - 0.04),
+      );
+      geometry.applyMatrix4(floor.matrixWorld);
+      geometry.translate(0, -0.02, 0);
       const mesh = new THREE.InstancedMesh(geometry, floor.material, capacity);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
+      mesh.receiveShadow = true;
       mesh.count = 0;
       this.instancedMeshes.push(mesh);
       this.root.add(mesh);

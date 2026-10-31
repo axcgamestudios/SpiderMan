@@ -116,9 +116,11 @@ export class CityWeather {
        float grain=fract(sin(dot(floor(snowWorldPosition.xz*7.),vec2(12.9898,78.233)))*43758.5453);
        float cover=smoothstep(.48,.83,normalize(snowWorldNormal).y)*citySnow;
        vec3 facadeNormal=normalize(snowWorldNormal);
-       float facadeLight=clamp(dot(facadeNormal,normalize(vec3(-.62,.2,-.77))),0.,1.);
+       // Must match SUN_DIRECTION in city-atmosphere.ts so fake facade shading
+       // agrees with the real directional light and the visible sun.
+       float facadeLight=clamp(dot(facadeNormal,normalize(vec3(-.5214,.4212,-.7421))),0.,1.);
        float skyBounce=facadeNormal.y*.5+.5;
-       vec3 facadeShade=mix(vec3(.66,.76,1.04),vec3(1.12),facadeLight*.72+skyBounce*.28);
+       vec3 facadeShade=mix(vec3(.78,.85,1.02),vec3(1.06),facadeLight*.66+skyBounce*.34);
        diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.83,.91,.97)*( .93+grain*.07),cover)*facadeShade*cityTint;`,
           );
         };

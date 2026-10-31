@@ -76,7 +76,7 @@ export function isolateRiggedMeshes(root: THREE.Object3D, discardRigidMeshes = f
   rigid.forEach((object) => object.parent?.remove(object));
 }
 
-export function prepareMaterials(root: THREE.Object3D, renderer: THREE.WebGLRenderer, mode: 'character' | 'environment' | 'baked') {
+export function prepareMaterials(root: THREE.Object3D, renderer: THREE.WebGLRenderer, mode: 'character' | 'environment' | 'baked' | 'city') {
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     // Rigged suits can be split across several meshes with stale imported
@@ -84,6 +84,13 @@ export function prepareMaterials(root: THREE.Object3D, renderer: THREE.WebGLRend
     if (mode === 'character') object.frustumCulled = false;
     object.castShadow = mode === 'character';
     object.receiveShadow = mode !== 'character';
+    if (mode === 'city') {
+      // Buildings and rooftop clutter cast shadows; street planes stay thin
+      // receivers so the shadow pass never wastes itself on the ground.
+      const bounds = new THREE.Box3().setFromObject(object);
+      const size = bounds.getSize(new THREE.Vector3());
+      object.castShadow = size.y > 3.5 && size.x > 1 && size.z > 1;
+    }
     const source = Array.isArray(object.material) ? object.material : [object.material];
     const prepared = source.map((material) => {
       const standard = material as THREE.MeshStandardMaterial;
@@ -98,7 +105,25 @@ export function prepareMaterials(root: THREE.Object3D, renderer: THREE.WebGLRend
       if (standard.normalMap) standard.normalMap.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
       if (mode !== 'baked') {
         if ('metalness' in standard && !Number.isFinite(standard.metalness)) standard.metalness = 0;
-        if ('envMapIntensity' in standard) standard.envMapIntensity = mode === 'character' ? .72 : .45;
+        if ('envMapIntensity' in standard) standard.envMapIntensity = mode === 'character' ? .72 : mode === 'city' ? .55 : .45;
+        if (mode === 'city') {
+          // The city scans ship their facade textures in the emissive slot.
+          // Promote that texture to lit albedo and keep only a whisper of the
+          // authored glow so windows still read at night.
+          if (!standard.map && standard.emissiveMap) {
+            standard.map = standard.emissiveMap;
+            standard.emissiveIntensity = Math.min(standard.emissiveIntensity, .28);
+          }
+          standard.flatShading = false;
+          standard.roughness = Number.isFinite(standard.roughness)
+            ? THREE.MathUtils.clamp(standard.roughness, .38, .92)
+            : .8;
+          standard.metalness = Number.isFinite(standard.metalness)
+            ? THREE.MathUtils.clamp(standard.metalness, 0, .55)
+            : .04;
+          standard.needsUpdate = true;
+          return standard;
+        }
         if (mode === 'environment') {
           standard.flatShading = false;
           standard.roughness = Number.isFinite(standard.roughness) ? Math.max(.42, standard.roughness) : .78;

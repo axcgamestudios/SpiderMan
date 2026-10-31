@@ -10,7 +10,7 @@ import { applySuitRestPose, normalizeSuit, suitAnimationClips, collectRigBones }
 const suit = SUITS.find(suit => suit.id === 'playstation');
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 loader.register(parser => { parser.loadTextureImage = () => Promise.resolve(new THREE.Texture()); return { name: 'TextureStub' }; });
-const bytes = await fs.readFile(new URL(`../public${suit.model}`, import.meta.url));
+const bytes = await fs.readFile(new URL(`../public/${suit.model.replace(/^\//,"")}`, import.meta.url));
 const gltf = await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
 const clips = suitAnimationClips(gltf.animations, suit);
 applySuitRestPose(gltf.scene, suit, clips); normalizeSuit(gltf.scene, suit);

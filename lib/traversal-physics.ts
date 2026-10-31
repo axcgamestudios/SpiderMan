@@ -412,9 +412,9 @@ export const DEFAULT_TRAVERSAL_CONFIG: Readonly<TraversalConfig> = Object.freeze
   swingReleaseLift: 8.5,
   swingReleaseForwardScale: 1,
   swingReleaseLiftScale: 1,
-  zipAcceleration: 92,
-  zipDamping: 4.8,
-  zipMaximumSpeed: 52,
+  zipAcceleration: 140,
+  zipDamping: 4.0,
+  zipMaximumSpeed: 60,
   pointLaunchWindow: 5.5,
   pointLaunchSpeed: 34,
   pointLaunchLift: 15,
@@ -876,8 +876,16 @@ function startZip(state: TraversalState, target: WebAnchorCandidate, config: Tra
       advanced.zipAfter = state.elapsed + ADVANCED_TUNING.zipCooldown;
       advanced.gliding = false; advanced.corner = null; advanced.loop = null; advanced.pulse = .7;
     }
-    const direction = normalize(horizontal(config.profiledSwing && length(input.move ?? vector()) > .15 ? input.move! : input.aimDirection ?? input.cameraForward ?? subtract(target.point, state.position)),
+    // The dash is aimed at the real web target; stick input only leans it.
+    // Firing a web at a point while holding a movement key must still launch
+    // toward that point, not sideways along the key.
+    const toTarget = normalize(horizontal(subtract(target.point, state.position)),
       normalize(horizontal(input.cameraForward ?? state.velocity), vector(0, 0, -1)));
+    const stick = config.profiledSwing && length(input.move ?? vector()) > .15
+      ? normalize(horizontal(input.move!)) : null;
+    const direction = stick
+      ? normalize(add(scale(toTarget, .68), scale(stick, .32)))
+      : toTarget;
     if (config.profiledSwing) {
       // A deliberate stick zip can make a sharp turn or U-turn; a real web
       // target was validated before entering this branch. Preserve momentum.
@@ -1422,7 +1430,7 @@ function applyZip(
   zip.elapsed += delta;
   if (config.arcadeTraversal && zip.airDash) {
     state.velocity = arcadeAirZipVelocity(state.velocity, zip.direction ?? input.cameraForward ?? vector(0, 0, -1),
-      delta, config.zipMaximumSpeed, config.maximumSpeed, config.gravity);
+      delta, Math.min(config.maximumSpeed, config.zipMaximumSpeed * 1.4), config.maximumSpeed, config.gravity);
     if (zip.elapsed >= AIR_ZIP.duration) {
       state.zip = null;
       events.push(event('zip-cancelled', state, { anchorId: zip.targetId }));
@@ -1440,8 +1448,10 @@ function applyZip(
   zip.stalledSeconds = closing ? 0 : (zip.stalledSeconds ?? 0) + delta;
   zip.bestRemaining = Math.min(zip.bestRemaining ?? remaining, remaining);
   const passedTarget = zip.direction && dot(offset, zip.direction) <= 0;
-  if (remaining < .12 || passedTarget || (zip.elapsed > .25 && zip.stalledSeconds > .22)
-    || zip.elapsed > Math.min(3.2, zip.startingDistance / config.zipMaximumSpeed + 1.3)) {
+  // Sliding along a facade toward the endpoint is legitimate travel, not a
+  // failure: give the pull time to climb ledges and parapets before giving up.
+  if (remaining < .12 || passedTarget || (zip.elapsed > .4 && zip.stalledSeconds > .34)
+    || zip.elapsed > Math.min(3.6, zip.startingDistance / config.zipMaximumSpeed + 1.7)) {
     // One pull, one completion. Never turn back toward an overshot endpoint.
     state.zip = null;
     if (remaining < 1) state.velocity = scale(state.velocity, Math.min(1, 14 / Math.max(1, length(state.velocity))));
@@ -1449,7 +1459,9 @@ function applyZip(
     return;
   }
   const alongSpeed = dot(state.velocity, direction);
-  const desiredSpeed = Math.min(config.zipMaximumSpeed, Math.sqrt(2 * config.zipAcceleration * Math.max(remaining - .02, 0)));
+  // Braking acts on a shortened runway (1.8x the acceleration budget) so the
+  // web keeps its authority until the last few metres instead of dying out.
+  const desiredSpeed = Math.min(config.zipMaximumSpeed, Math.sqrt(2 * config.zipAcceleration * 1.8 * Math.max(remaining - .02, 0)));
   const acceleration = clamp((desiredSpeed - alongSpeed) * config.zipDamping, -config.zipAcceleration, config.zipAcceleration);
   const lateralVelocity = reject(state.velocity, direction);
   state.velocity = add(scale(lateralVelocity, Math.exp(-config.zipDamping * delta)), scale(direction, alongSpeed + acceleration * delta));

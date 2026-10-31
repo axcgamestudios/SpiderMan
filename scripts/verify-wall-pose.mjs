@@ -22,7 +22,7 @@ loader.register((parser) => {
 });
 async function load(model) {
   const bytes = await fs.readFile(
-    new URL(`../public${model}`, import.meta.url),
+    new URL(`../public/${model.replace(/^\//,"")}`, import.meta.url),
   );
   return loader.parseAsync(
     bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),

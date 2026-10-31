@@ -40,3 +40,6 @@ next-env.d.ts
 /work/
 /.spiderman-explosive-v2-backup/
 dist-pages/
+
+# local visual pipeline check (dev tool, not shipped)
+/visual-check/

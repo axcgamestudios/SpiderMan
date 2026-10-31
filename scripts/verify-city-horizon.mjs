@@ -6,7 +6,7 @@ import { CityHorizon } from '../lib/city-horizon.ts';
 import { DISTRICTS } from '../lib/game-config.ts';
 const loader = new GLTFLoader();
 for (const config of DISTRICTS) {
-  const bytes = fs.readFileSync(`public${config.horizonModel}`);
+  const bytes = fs.readFileSync(`public/${config.horizonModel.replace(/^\//,"")}`);
   const gltf = await loader.parseAsync(
     bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
     '',

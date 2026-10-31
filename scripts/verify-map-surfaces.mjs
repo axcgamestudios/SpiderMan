@@ -18,7 +18,7 @@ const requested = new Set(process.argv.slice(2));
 const maps = requested.size ? DISTRICTS.filter(map => requested.has(map.id)) : DISTRICTS;
 assert.ok(maps.length, 'Pass a valid district id, or omit arguments for all maps.');
 for (const config of maps) {
-  const bytes = fs.readFileSync(new URL(`../public${config.model}`, import.meta.url));
+  const bytes = fs.readFileSync(new URL(`../public/${config.model.replace(/^\//,"")}`, import.meta.url));
   const gltf = await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
   const embedded = [];
   gltf.scene.traverse(object => { if (object instanceof THREE.SkinnedMesh) embedded.push(object); });
@@ -40,7 +40,7 @@ for (const config of maps) {
   floor.position.y = -.16;
   root.add(floor);
   root.updateWorldMatrix(true, true);
-  const metadata = config.collisionData ? JSON.parse(fs.readFileSync(new URL(`../public${config.collisionData}`, import.meta.url))) : {sourceWidth:config.targetWidth,colliders:[]};
+  const metadata = config.collisionData ? JSON.parse(fs.readFileSync(new URL(`../public/${config.collisionData.replace(/^\//,"")}`, import.meta.url))) : {sourceWidth:config.targetWidth,colliders:[]};
   const scale = config.targetWidth / metadata.sourceWidth;
   const sourceBoxes = metadata.colliders.map(source => {
     const box = new THREE.Box3().makeEmpty();

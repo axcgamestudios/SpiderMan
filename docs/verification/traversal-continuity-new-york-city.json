@@ -43,8 +43,8 @@
       "detaches": {},
       "detachSamples": [],
       "sampleFailures": [],
-      "cpuFrameMeanMs": 0.127,
-      "cpuFrameP95Ms": 0.327
+      "cpuFrameMeanMs": 0.213,
+      "cpuFrameP95Ms": 0.489
     },
     {
       "trial": "cross-street",
@@ -86,8 +86,8 @@
       "detaches": {},
       "detachSamples": [],
       "sampleFailures": [],
-      "cpuFrameMeanMs": 0.161,
-      "cpuFrameP95Ms": 0.594
+      "cpuFrameMeanMs": 0.236,
+      "cpuFrameP95Ms": 0.899
     },
     {
       "trial": "unrendered-repeat-tile",
@@ -129,8 +129,8 @@
       "detaches": {},
       "detachSamples": [],
       "sampleFailures": [],
-      "cpuFrameMeanMs": 0.103,
-      "cpuFrameP95Ms": 0.205
+      "cpuFrameMeanMs": 0.148,
+      "cpuFrameP95Ms": 0.302
     }
   ]
 }

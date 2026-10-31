@@ -23,7 +23,7 @@ loader.register(parser => {
 const files = new Map();
 async function load(model) {
   if (!files.has(model)) files.set(model, (async () => {
-    const bytes = await fs.readFile(new URL(`../public${model}`, import.meta.url));
+    const bytes = await fs.readFile(new URL(`../public/${model.replace(/^\//,"")}`, import.meta.url));
     return loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
   })());
   return files.get(model);

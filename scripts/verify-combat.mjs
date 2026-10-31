@@ -110,7 +110,7 @@ const loader = new GLTFLoader();
 loader.register(parser=>{parser.loadTextureImage=()=>Promise.resolve(new THREE.Texture());return{name:'combat-test-skip-images'};});
 const manifests=JSON.parse(fs.readFileSync('public/assets/bosses/manifest.json'));
 for(const [id,definition]of Object.entries(BOSS_DEFINITIONS)){
- const bytes=fs.readFileSync(`public${definition.asset}`);
+ const bytes=fs.readFileSync(`public/${definition.asset.replace(/^\//,"")}`);
  const gltf=await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
  const clips=prepareBossClips(gltf.animations), names=new Set(clips.map(c=>c.name));
  for(const name of [...Object.values(definition.clips),...definition.attacks.map(a=>a.clip)])assert.ok(names.has(name),`${id} missing ${name}`);

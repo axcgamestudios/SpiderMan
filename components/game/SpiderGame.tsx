@@ -51,9 +51,14 @@ import {
   type GhostRig,
 } from '@/lib/race-ghost';
 import { RaceWorldVisuals, sampleWindAssist, createRaceGeometrySampler, raceRoutePoints } from '@/lib/race-world';
-import { CityWeather, type SkyPreset } from '@/lib/city-weather';
+import { CityWeather, SKY_PRESETS, type SkyPreset } from '@/lib/city-weather';
 import { CityHorizon } from '@/lib/city-horizon';
-import { createCityAtmosphere } from '@/lib/city-atmosphere';
+import {
+  createCityAtmosphere,
+  makeSkyEnvironmentTexture,
+  SUN_COLOR,
+  SUN_DIRECTION,
+} from '@/lib/city-atmosphere';
 import { WebStrand, WEB_STRAND_MODEL } from '@/lib/web-strand';
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as THREE from 'three';
@@ -630,15 +635,25 @@ function addProceduralSwingDistrict(
     roof.name = `Clickable rooftop caps ${variant + 1}`;
     facade.receiveShadow = true;
     roof.receiveShadow = true;
+    facade.castShadow = true;
+    roof.castShadow = true;
+    (facade.material as THREE.MeshStandardMaterial).envMapIntensity = 0.5;
+    (roof.material as THREE.MeshStandardMaterial).envMapIntensity = 0.4;
     district.add(facade, roof);
   }
 
   const avenue = new THREE.Mesh(
     new THREE.BoxGeometry(roadX + 8, 0.035, extent),
-    new THREE.MeshBasicMaterial({ color: '#202b34' }),
+    new THREE.MeshStandardMaterial({
+      color: '#2c3844',
+      roughness: 0.88,
+      metalness: 0.02,
+      envMapIntensity: 0.35,
+    }),
   );
   avenue.position.y = 0.012;
   avenue.name = 'Central swing avenue';
+  avenue.receiveShadow = true;
   district.add(avenue);
   root.add(district);
   return {
@@ -680,15 +695,21 @@ function createColliderAnchorProxy(
 
 function addAuthoredMapFloor(
   root: THREE.Group,
-  width: number,
-  depth: number,
+  tileWidth: number,
+  tileDepth: number,
   name: string,
 ) {
+  // The slab is sized to the exact streaming cell (a hair inset) instead of
+  // overhanging it: neighbouring tiles then butt against each other instead
+  // of overlapping at identical heights, which read as flickering streets.
   const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(width + 12, 0.28, depth + 12),
-    new THREE.MeshBasicMaterial({
+    new THREE.BoxGeometry(Math.max(8, tileWidth - 0.02), 0.28, Math.max(8, tileDepth - 0.02)),
+    new THREE.MeshStandardMaterial({
       map: createAsphaltTexture(),
-      color: '#d7dce0',
+      color: '#c9cfd6',
+      roughness: 0.94,
+      metalness: 0.02,
+      envMapIntensity: 0.35,
     }),
   );
   floor.position.y = -0.16;
@@ -905,8 +926,8 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.2;
-      renderer.shadowMap.enabled = false;
+      renderer.toneMappingExposure = 1.12;
+      renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFShadowMap;
       const speedBlur = new TraversalSpeedBlur();
       const reducedMotion = matchMedia(
@@ -924,21 +945,44 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         );
       }
       mount.appendChild(renderer.domElement);
-      scene.add(new THREE.AmbientLight('#9bc9e8', 0.42));
-      const skyFill = new THREE.HemisphereLight('#b7c9e4', '#6b5a4b', 1.55);
+      scene.add(new THREE.AmbientLight('#9fc6e8', 0.24));
+      const skyFill = new THREE.HemisphereLight('#bdd5f2', '#8a7a66', 1.02);
       scene.add(skyFill);
-      const rim = new THREE.DirectionalLight('#829dff', 0.7);
+      const rim = new THREE.DirectionalLight('#8fb0e8', 0.4);
       rim.position.set(120, 65, -120);
       scene.add(rim);
-      const sun = new THREE.DirectionalLight('#ffd4bc', 1.85);
-      sun.position.set(-180, 360, 170);
-      sun.castShadow = false;
-      sun.shadow.mapSize.set(1024, 1024);
-      sun.shadow.camera.left = -150;
-      sun.shadow.camera.right = 150;
-      sun.shadow.camera.top = 150;
-      sun.shadow.camera.bottom = -150;
+      const sun = new THREE.DirectionalLight(SUN_COLOR, 3.0);
+      sun.position.copy(SUN_DIRECTION).multiplyScalar(620);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.left = -240;
+      sun.shadow.camera.right = 240;
+      sun.shadow.camera.top = 240;
+      sun.shadow.camera.bottom = -240;
+      sun.shadow.camera.near = 20;
+      sun.shadow.camera.far = 1400;
+      sun.shadow.bias = -0.0004;
+      sun.shadow.normalBias = 0.9;
       scene.add(sun);
+      // The light direction must track the player through the shared sun
+      // target, otherwise a distant pivot slowly rotates the shadows.
+      scene.add(sun.target);
+      const environmentCache = new Map<string, THREE.Texture>();
+      let activeEnvironmentKey = '';
+      const pmremGenerator = new THREE.PMREMGenerator(renderer);
+      const applySkyEnvironment = (preset: SkyPreset, night: boolean) => {
+        const key = `${preset}:${night ? 'n' : 'd'}`;
+        const cached = environmentCache.get(key);
+        if (cached) {
+          scene.environment = cached;
+          return;
+        }
+        const equirect = makeSkyEnvironmentTexture(preset, night);
+        const environment = pmremGenerator.fromEquirectangular(equirect).texture;
+        equirect.dispose();
+        environmentCache.set(key, environment);
+        scene.environment = environment;
+      };
 
       const worldColliders: THREE.Box3[] = [];
       const spatialColliders = new Map<string, THREE.Box3[]>();
@@ -1212,6 +1256,10 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       let currentDistrict: DistrictId = props.districtId;
       let hudAccumulator = 0;
       let fpsAccumulator = 0;
+      const sunRayOrigin = new THREE.Vector3();
+      const sunRayView = new THREE.Vector3();
+      const sunRayNdc = new THREE.Vector3();
+      let sunRayStrength = 0;
       let fpsFrames = 0;
       let measuredFps = 60;
       let buildingCorrectionCount = 0;
@@ -1733,6 +1781,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       const updateWorldStreaming = (
         district: DistrictId,
         position: THREE.Vector3,
+        velocity?: THREE.Vector3,
       ) => {
         const stream = districtStreams.get(district);
         if (!stream) return;
@@ -1743,19 +1792,30 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         const centerZ = Math.round(
           (position.z - config.position[2]) / stream.tileDepth,
         );
-        const desired = new Set<string>([tileKey(centerX, centerZ)]);
-        const localX =
-          position.x - config.position[0] - centerX * stream.tileWidth;
-        const localZ =
-          position.z - config.position[2] - centerZ * stream.tileDepth;
-        const edgeX =
-          Math.abs(localX) > stream.tileWidth * 0.3 ? Math.sign(localX) : 0;
-        const edgeZ =
-          Math.abs(localZ) > stream.tileDepth * 0.3 ? Math.sign(localZ) : 0;
-        if (edgeX) desired.add(tileKey(centerX + edgeX, centerZ));
-        if (edgeZ) desired.add(tileKey(centerX, centerZ + edgeZ));
-        if (edgeX && edgeZ)
-          desired.add(tileKey(centerX + edgeX, centerZ + edgeZ));
+        // Keep a full 3x3 block of detailed tiles mounted at all times, so the
+        // swap between the detailed city and the distant skyline happens more
+        // than a tile and a half away (far beyond the near fog), never beside
+        // the player.
+        const desired = new Set<string>();
+        for (let dx = -1; dx <= 1; dx += 1)
+          for (let dz = -1; dz <= 1; dz += 1)
+            desired.add(tileKey(centerX + dx, centerZ + dz));
+        // While travelling, prefetch the second ring in the direction of
+        // motion so fast swings meet fully detailed streets ahead.
+        const speedX = velocity?.x ?? 0;
+        const speedZ = velocity?.z ?? 0;
+        const horizontalSpeed = Math.hypot(speedX, speedZ);
+        if (horizontalSpeed > 9) {
+          const dirX = speedX / horizontalSpeed;
+          const dirZ = speedZ / horizontalSpeed;
+          for (let dx = -2; dx <= 2; dx += 1)
+            for (let dz = -2; dz <= 2; dz += 1) {
+              if (Math.max(Math.abs(dx), Math.abs(dz)) < 2) continue;
+              const length = Math.hypot(dx, dz);
+              if ((dx / length) * dirX + (dz / length) * dirZ < 0.35) continue;
+              desired.add(tileKey(centerX + dx, centerZ + dz));
+            }
+        }
 
         // Keep the destination map tile ready before any racer gets there.
         // Geometry is shared with the main city; only the finish tile is pinned.
@@ -1772,14 +1832,24 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           changed = true;
         }
 
-        // Add only two shared-geometry tiles per frame. At the center of a map
-        // only one tile exists; neighbors are prefetched just before an edge and
-        // distant tiles are removed. This keeps the 96 MB city scan playable.
-        let mounted = 0;
+        // Mount a few shared-geometry tiles per frame, nearest first. Geometry
+        // and materials are shared, so a tile mount is a cheap scene-graph clone
+        // plus one collision rebuild per frame.
+        const pending: { x: number; z: number; distance: number }[] = [];
         for (const key of desired) {
-          if (stream.tiles.has(key) || mounted >= 2) continue;
+          if (stream.tiles.has(key)) continue;
           const [x, z] = key.split(':').map(Number);
-          mountStreamedTile(stream, x, z);
+          pending.push({
+            x,
+            z,
+            distance: Math.hypot(x - centerX, z - centerZ),
+          });
+        }
+        pending.sort((a, b) => a.distance - b.distance);
+        let mounted = 0;
+        for (const tile of pending) {
+          if (mounted >= 4) break;
+          mountStreamedTile(stream, tile.x, tile.z);
           mounted += 1;
           changed = true;
         }
@@ -1844,7 +1914,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
                   materialNames,
                 );
             });
-            prepareMaterials(model, renderer, 'baked');
+            prepareMaterials(model, renderer, 'city');
             model.updateWorldMatrix(true, true);
             let box = new THREE.Box3().setFromObject(model);
             const sourceSize = box.getSize(new THREE.Vector3());
@@ -1884,13 +1954,31 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               if (object.userData.walkableStreetSurface)
                 walkableSurfaces.add(object);
             });
-            const authoredFloorExtent =
-              config.id === 'new-york-buildings' ? 560 : 0;
+            const authoredFloorExtent = config.id === 'new-york-buildings' ? 560 : 0;
+            // Compute the streaming cell once, before the floor exists, so the
+            // gameplay slab, the streamed tile spacing, the repeating collision
+            // world, and the distant horizon all share one identical grid.
+            const rotationCos = Math.abs(Math.cos(root.rotation.y));
+            const rotationSin = Math.abs(Math.sin(root.rotation.y));
+            const tileSpacingX = Math.max(
+              8,
+              Math.max(
+                authoredFloorExtent,
+                rotationCos * size.x + rotationSin * size.z,
+              ) + 8,
+            );
+            const tileSpacingZ = Math.max(
+              8,
+              Math.max(
+                authoredFloorExtent,
+                rotationSin * size.x + rotationCos * size.z,
+              ) + 8,
+            );
             walkableSurfaces.add(
               addAuthoredMapFloor(
                 root,
-                Math.max(size.x, authoredFloorExtent),
-                Math.max(size.z, authoredFloorExtent),
+                tileSpacingX,
+                tileSpacingZ,
                 config.name,
               ),
             );
@@ -2108,8 +2196,8 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               distant.scene,
               model.matrixWorld,
               root,
-              Math.max(8, rotatedWidth + 8),
-              Math.max(8, rotatedDepth + 8),
+              tileSpacingX,
+              tileSpacingZ,
             );
             weather.apply(horizon.root);
             if (config.id !== currentDistrict)
@@ -2123,9 +2211,9 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               // Leave a narrow street-width seam between repeated imports. Several
               // source scans have facade collision right on their bounds; abutting
               // those bounds exactly makes the expanded player capsule overlap two
-              // tiles at once. The authored floor overhang bridges this seam.
-              tileWidth: Math.max(8, rotatedWidth + 8),
-              tileDepth: Math.max(8, rotatedDepth + 8),
+              // tiles at once. The cell-sized authored floor bridges this seam.
+              tileWidth: tileSpacingX,
+              tileDepth: tileSpacingZ,
               tiles: new Map([
                 [
                   tileKey(0, 0),
@@ -2145,11 +2233,11 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               config.id,
               new RepeatingMeshWorld(
                 query,
-                Math.max(8, rotatedWidth + 8),
-                Math.max(8, rotatedDepth + 8),
+                tileSpacingX,
+                tileSpacingZ,
               ),
             );
-            updateWorldStreaming(config.id, rooftopSpawn);
+            updateWorldStreaming(config.id, rooftopSpawn, new THREE.Vector3());
             return root;
           })();
         districtModelPromises.set(config.model, modelPromise);
@@ -3468,9 +3556,18 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             requestedNight,
             atmosphereDelta,
           );
-          sun.intensity = THREE.MathUtils.lerp(2.4, 0.3, atmosphere.night);
-          skyFill.intensity = THREE.MathUtils.lerp(1.55, 0.85, atmosphere.night);
-          rim.intensity = THREE.MathUtils.lerp(0.7, 1.4, atmosphere.night);
+          sun.intensity = THREE.MathUtils.lerp(3.0, 0.22, atmosphere.night);
+          skyFill.intensity = THREE.MathUtils.lerp(1.02, 0.4, atmosphere.night);
+          rim.intensity = THREE.MathUtils.lerp(0.4, 1.05, atmosphere.night);
+          sun.position
+            .copy(player.position)
+            .addScaledVector(SUN_DIRECTION, 620);
+          sun.target.position.copy(player.position);
+          const pausedEnvironmentKey = `${effectiveSky}:${requestedNight ? 'n' : 'd'}`;
+          if (pausedEnvironmentKey !== activeEnvironmentKey) {
+            activeEnvironmentKey = pausedEnvironmentKey;
+            applySkyEnvironment(effectiveSky, requestedNight);
+          }
           speedBlur.render(renderer, scene, camera);
           return;
         }
@@ -3505,9 +3602,21 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           callbacksRef.current.night ?? false,
           delta,
         );
-        sun.intensity = THREE.MathUtils.lerp(2.4, 0.3, atmosphere.night);
-        skyFill.intensity = THREE.MathUtils.lerp(1.55, 0.85, atmosphere.night);
-        rim.intensity = THREE.MathUtils.lerp(0.7, 1.4, atmosphere.night);
+        sun.intensity = THREE.MathUtils.lerp(3.0, 0.22, atmosphere.night);
+        skyFill.intensity = THREE.MathUtils.lerp(1.02, 0.4, atmosphere.night);
+        rim.intensity = THREE.MathUtils.lerp(0.4, 1.05, atmosphere.night);
+        // Lit facades reflect the sky: rebuild the PMREM environment whenever
+        // the preset or the day/night state actually changes.
+        const nightNow = callbacksRef.current.night ?? false;
+        const environmentKey = `${effectiveSky}:${nightNow ? 'n' : 'd'}`;
+        if (environmentKey !== activeEnvironmentKey) {
+          activeEnvironmentKey = environmentKey;
+          applySkyEnvironment(effectiveSky, nightNow);
+        }
+        sun.position
+          .copy(player.position)
+          .addScaledVector(SUN_DIRECTION, 620);
+        sun.target.position.copy(player.position);
         if (!ready) {
           renderer.render(scene, camera);
           return;
@@ -3677,7 +3786,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         }
 
         const streamingStart = performance.now();
-        updateWorldStreaming(currentDistrict, player.position);
+        updateWorldStreaming(currentDistrict, player.position, player.velocity);
         telemetry.record('streaming', performance.now() - streamingStart);
         const activeColliders = nearbyColliders(
           player.position,
@@ -3697,24 +3806,25 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
                 runSpeed: 11,
                 maximumSpeed: 92,
               }
-            : pointerZipActive
-              ? {
-                  ...SPIDER_TRAVERSAL_FEEL,
-                  // A click grapple is the traversal equivalent of Spider-Man's web
-                  // zip: a brief, decisive pull rather than another rope-swing state.
-                  zipAcceleration: 190,
-                  zipDamping: 2.35,
-                  zipMaximumSpeed: 96,
-                  maximumSpeed: SPIDER_TRAVERSAL_FEEL.maximumSpeed,
-                  anchorMaximumDistance: 150,
-                }
-              : {
-                  ...SPIDER_TRAVERSAL_FEEL,
-                  zipAcceleration: 126,
-                  zipDamping: 3.6,
-                  zipMaximumSpeed: 66,
-                };
+            : {
+                ...SPIDER_TRAVERSAL_FEEL,
+                zipAcceleration: 140,
+                zipDamping: 4.0,
+                zipMaximumSpeed: 64,
+              };
         if (hero.traversal === 'spider') Object.assign(traversalOverrides,raceSwingConfig && race && ['inviting','invited','countdown','racing'].includes(race.phase) ? raceSwingConfig : swingConfig);
+        if (hero.traversal === 'spider' && pointerZipActive) {
+          // A click grapple is the traversal equivalent of Spider-Man's web
+          // zip: a brief, decisive pull rather than another rope-swing state.
+          // Applied after the profile merge so a saved profile slider can
+          // never slow the aimed grapple back down.
+          Object.assign(traversalOverrides, {
+            zipAcceleration: 200,
+            zipDamping: 3.1,
+            zipMaximumSpeed: 92,
+            anchorMaximumDistance: 150,
+          });
+        }
         traversalOverrides.cameraMotionScale = reducedMotion ? 0 : traversalOverrides.cameraMotionScale ?? 1;
         renderer.domElement.dataset.swingProfile = swingProfile.name;
         const frameInput: TraversalInput = {
@@ -4821,11 +4931,47 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           traversal.mode === 'glide',
         );
         renderer.domElement.dataset.motionBlur = speedBlur.strength.toFixed(4);
-        sun.position.set(
-          player.position.x - 180,
-          player.position.y + 360,
-          player.position.z + 170,
-        );
+        // Subtle screen-space sun rays: project the shared sun direction into
+        // the final view and let the post pass scatter the bright sky around
+        // building silhouettes. Fades out off-screen, at night, and under heavy
+        // cloud so it never reads as an exaggerated effect.
+        {
+          // Refresh with this frame's view before projecting the sun.
+          camera.updateMatrixWorld();
+          sunRayOrigin
+            .copy(player.position)
+            .addScaledVector(SUN_DIRECTION, 2400);
+          sunRayView.copy(sunRayOrigin).applyMatrix4(camera.matrixWorldInverse);
+          if (sunRayView.z < -1) {
+            sunRayNdc.copy(sunRayOrigin).project(camera);
+            const offScreen = Math.max(
+              Math.abs(sunRayNdc.x),
+              Math.abs(sunRayNdc.y),
+            );
+            const screenFade = THREE.MathUtils.clamp(
+              1.35 - offScreen * 0.55,
+              0,
+              1,
+            );
+            const selectedPreset = SKY_PRESETS[effectiveSky];
+            const targetStrength =
+              (1 - atmosphere.night) *
+              (1 - selectedPreset.clouds * 0.55) *
+              screenFade *
+              0.5 *
+              (reducedMotion ? 0 : 1);
+            sunRayStrength = damp(sunRayStrength, targetStrength, 3, delta);
+            speedBlur.setSunRays(
+              sunRayNdc.x * 0.5 + 0.5,
+              sunRayNdc.y * 0.5 + 0.5,
+              sunRayStrength,
+            );
+          } else {
+            sunRayStrength = damp(sunRayStrength, 0, 6, delta);
+            speedBlur.setSunRays(0.5, 0.5, sunRayStrength);
+          }
+          renderer.domElement.dataset.sunRays = sunRayStrength.toFixed(3);
+        }
 
         hudAccumulator += delta;
         fpsAccumulator += rawDelta;
@@ -4969,6 +5115,14 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           raceVisuals.setParticleDensity(q.particleDensity);
           speedBlur.setResolutionScale(q.postprocessScale);
           renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25) * q.resolutionScale);
+          // Shadows are the one new cost: trade resolution before trading
+          // anything else when the frame budget is under pressure.
+          const shadowResolution = q.level >= 3 ? 1024 : 2048;
+          if (sun.shadow.mapSize.x !== shadowResolution) {
+            sun.shadow.map?.dispose();
+            sun.shadow.map = null;
+            sun.shadow.mapSize.set(shadowResolution, shadowResolution);
+          }
           resize();
           renderer.domElement.dataset.qualityTier = String(q.level);
         }
@@ -5059,6 +5213,11 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       return () => {
         disposed = true;
         weather.dispose();
+        for (const environment of environmentCache.values()) environment.dispose();
+        environmentCache.clear();
+        scene.environment = null;
+        pmremGenerator.dispose();
+        sun.shadow.map?.dispose();
         missionVisuals.dispose();
         bossVisuals.dispose();
         bossLoadingGeneration++;

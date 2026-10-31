@@ -12,7 +12,7 @@ import {createTraversalState,stepTraversalInPlace,setTraversalKinematics,acceptT
 import {hasRollCorridor} from '../lib/traversal-prediction.ts';
 const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 loader.register(parser=>{parser.loadTextureImage=()=>Promise.resolve(new THREE.Texture());return{name:'CPUTextures'};});
-const config=getDistrict('new-york-city'), bytes=await fs.readFile(`public${config.model}`);
+const config=getDistrict('new-york-city'), bytes=await fs.readFile(`public/${config.model.replace(/^\//,"")}`);
 const gltf=await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
 const embedded=[];gltf.scene.traverse(o=>{if(o.isSkinnedMesh)embedded.push(o)});embedded.forEach(o=>o.removeFromParent());
 const initial=new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3()),scale=config.targetWidth/Math.max(initial.x,initial.z);
