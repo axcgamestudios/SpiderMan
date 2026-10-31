@@ -21,18 +21,17 @@ npx vite build --config vite.ghpages.config.ts
 touch dist-pages/.nojekyll
 
 echo '==> Publishing dist-pages/ to the gh-pages branch'
-export GIT_INDEX_FILE="$(mktemp)"
-trap 'rm -f "$GIT_INDEX_FILE"' EXIT
-git read-tree --empty
-git -C dist-pages add -A
-TREE="$(git write-tree)"
-PARENT="$(git rev-parse --verify -q refs/heads/gh-pages || true)"
-if [ -n "$PARENT" ]; then
-  COMMIT="$(git commit-tree "$TREE" -p "$PARENT" -m 'Deploy static build to GitHub Pages')"
-else
-  COMMIT="$(git commit-tree "$TREE" -m 'Deploy static build to GitHub Pages')"
-fi
-git update-ref refs/heads/gh-pages "$COMMIT"
-git push "$REMOTE" gh-pages
+# Stage the build in a throwaway repository. A nested `git init` has no
+# inherited ignore rules, so every build file (including .nojekyll) is
+# committed, and binary blobs already present in history are reused on push.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+cp -a dist-pages/. "$STAGE/"
+git -C "$STAGE" init -q
+git -C "$STAGE" add -A
+git -C "$STAGE" -c user.name='deploy' -c user.email='deploy@users.noreply.github.com' \
+  commit -q -m 'Deploy static build to GitHub Pages'
+git -C "$STAGE" push --force "$REPO_ROOT" HEAD:gh-pages
+git push --force "$REMOTE" gh-pages
 
 echo '==> Done. Site: https://axcgamestudios.github.io/SpiderMan/'
