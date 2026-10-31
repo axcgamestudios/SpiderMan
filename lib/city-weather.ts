@@ -2,24 +2,24 @@ import * as THREE from 'three';
 export const SKY_PRESETS = {
   clear: {
     label: 'Clear blue',
-    top: '#367bd0',
-    horizon: '#d1e8f5',
-    fog: '#b4d2e7',
-    clouds: 0.16,
+    top: '#1f74dd',
+    horizon: '#d3ecf8',
+    fog: '#b8d8ec',
+    clouds: 0.14,
   },
   golden: {
     label: 'Golden hour',
-    top: '#6b89a3',
-    horizon: '#ecc493',
-    fog: '#caa986',
-    clouds: 0.45,
+    top: '#2a7ede',
+    horizon: '#f9c98b',
+    fog: '#e4c9a2',
+    clouds: 0.22,
   },
   dawn: {
     label: 'Rose dawn',
-    top: '#6876ae',
-    horizon: '#ffc6b2',
-    fog: '#c5b1c8',
-    clouds: 0.32,
+    top: '#5d72b8',
+    horizon: '#ffc4b0',
+    fog: '#cdb4c6',
+    clouds: 0.3,
   },
   overcast: {
     label: 'Overcast',
@@ -115,10 +115,14 @@ export class CityWeather {
             `#include <color_fragment>
        float grain=fract(sin(dot(floor(snowWorldPosition.xz*7.),vec2(12.9898,78.233)))*43758.5453);
        float cover=smoothstep(.48,.83,normalize(snowWorldNormal).y)*citySnow;
-       diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.83,.91,.97)*( .93+grain*.07),cover)*cityTint;`,
+       vec3 facadeNormal=normalize(snowWorldNormal);
+       float facadeLight=clamp(dot(facadeNormal,normalize(vec3(-.62,.2,-.77))),0.,1.);
+       float skyBounce=facadeNormal.y*.5+.5;
+       vec3 facadeShade=mix(vec3(.66,.76,1.04),vec3(1.12),facadeLight*.72+skyBounce*.28);
+       diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.83,.91,.97)*( .93+grain*.07),cover)*facadeShade*cityTint;`,
           );
         };
-        m.customProgramCacheKey = () => 'city-weather-v1';
+        m.customProgramCacheKey = () => 'city-weather-v2';
         m.needsUpdate = true;
       }
     });

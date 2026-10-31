@@ -214,7 +214,7 @@ export default function Home() {
                   data-selected={suit.id === activeSuit.id}
                   onClick={() => selectSuit(suit.id)}
                   aria-label={`Select ${suit.name}`}>
-                  <Image src={`/assets/previews/suits/${suit.id}.png`} alt="" width={180} height={180} unoptimized />
+                  <Image src={`assets/previews/suits/${suit.id}.png`} alt="" width={180} height={180} unoptimized />
                   <span>{suit.name}</span>
                 </button>
               ))}

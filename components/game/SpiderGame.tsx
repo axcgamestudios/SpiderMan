@@ -905,7 +905,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.12;
+      renderer.toneMappingExposure = 1.2;
       renderer.shadowMap.enabled = false;
       renderer.shadowMap.type = THREE.PCFShadowMap;
       const speedBlur = new TraversalSpeedBlur();
@@ -925,7 +925,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       }
       mount.appendChild(renderer.domElement);
       scene.add(new THREE.AmbientLight('#9bc9e8', 0.42));
-      const skyFill = new THREE.HemisphereLight('#b7c9e4', '#443347', 1.55);
+      const skyFill = new THREE.HemisphereLight('#b7c9e4', '#6b5a4b', 1.55);
       scene.add(skyFill);
       const rim = new THREE.DirectionalLight('#829dff', 0.7);
       rim.position.set(120, 65, -120);
@@ -3468,7 +3468,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             requestedNight,
             atmosphereDelta,
           );
-          sun.intensity = THREE.MathUtils.lerp(2.1, 0.3, atmosphere.night);
+          sun.intensity = THREE.MathUtils.lerp(2.4, 0.3, atmosphere.night);
           skyFill.intensity = THREE.MathUtils.lerp(1.55, 0.85, atmosphere.night);
           rim.intensity = THREE.MathUtils.lerp(0.7, 1.4, atmosphere.night);
           speedBlur.render(renderer, scene, camera);
@@ -3505,7 +3505,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           callbacksRef.current.night ?? false,
           delta,
         );
-        sun.intensity = THREE.MathUtils.lerp(2.1, 0.3, atmosphere.night);
+        sun.intensity = THREE.MathUtils.lerp(2.4, 0.3, atmosphere.night);
         skyFill.intensity = THREE.MathUtils.lerp(1.55, 0.85, atmosphere.night);
         rim.intensity = THREE.MathUtils.lerp(0.7, 1.4, atmosphere.night);
         if (!ready) {
@@ -4965,7 +4965,6 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         }
         if (quality.update(delta, rawFrameMs, document.visibilityState === 'visible')) {
           const q = quality.settings;
-          for (const stream of districtStreams.values()) stream.horizon.detailScale = q.farDetail;
           weather.setDensity(q.weatherDensity);
           raceVisuals.setParticleDensity(q.particleDensity);
           speedBlur.setResolutionScale(q.postprocessScale);

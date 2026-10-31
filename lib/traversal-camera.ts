@@ -21,7 +21,9 @@ export function constrainCameraBoom(target: THREE.Vector3, desired: THREE.Vector
 /** Port of the reference's TraversalSpeedBlur shader. A clear center protects
  * the character and HUD; bounded acceleration pulses clear during steady air. */
 export class TraversalSpeedBlur {
-  private target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true });
+  // samples: 4 keeps the offscreen pass antialiased like the direct pass, so
+  // bursts do not pulse jagged skyline edges against the sky.
+  private target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true, samples: 4 });
   private scene = new THREE.Scene();
   private camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private material = new THREE.ShaderMaterial({

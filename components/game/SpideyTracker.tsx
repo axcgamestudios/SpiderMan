@@ -591,7 +591,7 @@ export function SpideyTracker({
       <header className={styles.topbar}>
         <div className={styles.maskLogo}>
           <Image
-            src="/assets/ui/spider-man-mask.svg"
+            src="assets/ui/spider-man-mask.svg"
             alt=""
             width={45}
             height={45}
@@ -666,7 +666,7 @@ export function SpideyTracker({
       <footer className={styles.footer}>
         <div className={styles.spiderLogo}>
           <Image
-            src="/assets/ui/spider-man-emblem.svg"
+            src="assets/ui/spider-man-emblem.svg"
             alt=""
             width={46}
             height={46}

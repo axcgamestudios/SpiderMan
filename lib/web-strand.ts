@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export const WEB_STRAND_MODEL = '/assets/effects/spiderman-web.glb';
+export const WEB_STRAND_MODEL = 'assets/effects/spiderman-web.glb';
 export const WEB_STRAND_DIAMETER = .02;
 export const WEB_STRAND_MAX_SEGMENTS = 12;
 const SEGMENT_LENGTH = 8;

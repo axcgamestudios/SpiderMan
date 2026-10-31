@@ -197,7 +197,7 @@ test('loop cannot complete after the mesh cancels the web',()=>{
 test('reduced-motion configuration suppresses dynamic camera FOV',()=>{
  const s=createTraversalState(v(0,50),v(0,0,-100));s.advanced.pulse=1;
  const still=refreshTraversalContext(s,{}, {...config,cameraMotionScale:0});const active=refreshTraversalContext(s,{},config);
- near(still.camera.fov,66);assert.ok(active.camera.fov>85);near(still.camera.roll,0);
+ near(still.camera.fov,66);assert.ok(active.camera.fov>82);near(still.camera.roll,0);
 });
 test('active wall run settles to a controllable pace for 2.5 seconds',()=>{
  const s=createTraversalState(v(0,40),v(30,0,-50));const contact={point:v(.46,40),normal:v(-1),feetTouching:true};

@@ -112,8 +112,8 @@ export function prepareMaterials(root: THREE.Object3D, renderer: THREE.WebGLRend
       // low-latency unlit materials instead of replacing it with flat white.
       const bakedMap = standard.map ?? standard.emissiveMap ?? null;
       const bakedColor = standard.emissiveMap && !standard.map
-        ? new THREE.Color('#9db3c2')
-        : (standard.color ?? new THREE.Color('white')).clone().multiplyScalar(.88);
+        ? new THREE.Color('#f2efe9')
+        : (standard.color ?? new THREE.Color('white')).clone().multiplyScalar(.97);
       const baked = new THREE.MeshBasicMaterial({
         map: bakedMap,
         color: bakedColor,

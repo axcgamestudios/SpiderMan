@@ -1842,7 +1842,7 @@ function createContext(state: TraversalState, input: TraversalInput, config: Tra
       : clamp(-state.velocity.y / 58, -0.32, 0.38);
   const bodyRoll = clamp(-lateral * (0.18 + speedBlend * 0.42) + (state.wall?.normal.x ?? 0) * wallBlend * 0.3, -0.78, 0.78);
   const fov = clamp(
-    config.baseFov + (speedBlend * 17 + diveBlend * 5 + launchBlend * 6 + tension * 2 + pulse * 5) * motionScale,
+    config.baseFov + (speedBlend * 14 + diveBlend * 5 + launchBlend * 6 + tension * 2 + pulse * 5) * motionScale,
     config.baseFov,
     config.maximumFov,
   );
@@ -1862,11 +1862,11 @@ function createContext(state: TraversalState, input: TraversalInput, config: Tra
     },
     camera: {
       fov,
-      followDistance: 6.7 + (speedBlend * 5.8 + diveBlend * 1.6 + pulse * .7) * motionScale,
+      followDistance: 6.7 + (speedBlend * 3.1 + diveBlend * 1.4 + pulse * .55) * motionScale,
       heightOffset: 2.35 + (-diveBlend * .85 + launchBlend * .45 + (config.advancedTraversal ? clamp(state.velocity.y * .025, -.7, 1) : 0)) * motionScale,
       roll: clamp(-lateral * speedBlend * 0.16 + bodyRoll * 0.16, -0.25, 0.25) * motionScale,
       shake: saturate((speedBlend - 0.38) / 0.62) * 0.16 + launchBlend * 0.1,
-      lookAhead: add(scale(forward, 2.4 + speedBlend * 9), scale(UP, clamp(state.velocity.y * 0.1, -3, 4))),
+      lookAhead: add(scale(forward, 1.9 + speedBlend * 4.4), scale(UP, clamp(state.velocity.y * 0.07, -2.4, 2.8))),
       speedLines: saturate((speed - 24) / 35),
     },
     speed,

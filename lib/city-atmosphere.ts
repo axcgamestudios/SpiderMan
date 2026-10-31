@@ -21,9 +21,9 @@ export function createCityAtmosphere(scene: THREE.Scene) {
  float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
  float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+1.),f.x),f.y),f.z);}
  float fbm(vec3 p){float n=0.,a=.5;for(int i=0;i<5;i++){n+=noise(p)*a;p=p*2.03+vec3(13.1,7.3,3.7);a*=.5;}return n;}
- void main(){vec3 d=normalize(direction);float h=smoothstep(-.15,.75,d.y);vec3 sky=mix(mix(horizon,vec3(.025,.04,.085),night),mix(top,vec3(.002,.006,.025),night),h);
+ void main(){vec3 d=normalize(direction);float h=smoothstep(-.05,.45,d.y);vec3 sky=mix(mix(horizon,vec3(.025,.04,.085),night),mix(top,vec3(.002,.006,.025),night),h);
  float sun=max(0.,dot(d,normalize(vec3(-.62,.2,-.77))));sky+=vec3(1.,.66,.36)*pow(sun,32.)*.22*(1.-night)*(1.-clouds);
- float cloud=smoothstep(.64-clouds*.3,.78-clouds*.26,fbm(d*7.+vec3(time*.003,0.,time*.001)));cloud*=smoothstep(-.03,.18,d.y);sky=mix(sky,mix(vec3(.78,.84,.9),vec3(.027,.042,.075),night),cloud*.8);
+ float cloud=smoothstep(.64-clouds*.3,.78-clouds*.26,fbm(d*7.+vec3(time*.003,0.,time*.001)));cloud*=smoothstep(-.03,.18,d.y);vec3 cloudTint=mix(mix(horizon,vec3(1.),.3),vec3(.027,.042,.075),night);sky=mix(sky,cloudTint,cloud*.68);
  float stars=pow(hash(floor(d*1100.)),1600.)*smoothstep(.08,.5,d.y)*night*(1.-cloud);sky+=vec3(.6,.75,1.)*stars;
  gl_FragColor=vec4(sky,1.);
  #include <tonemapping_fragment>

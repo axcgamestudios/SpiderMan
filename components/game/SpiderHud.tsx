@@ -176,7 +176,7 @@ export function SpiderHud({
         <StatusBanner className="encounter-villain" portrait={definition.portrait}
           portraitAlt={`${boss.name} portrait`} name={boss.name} percent={bossPercent}
           detail={`PHASE ${boss.phase} · ${definition.subtitle}`} />
-        <StatusBanner className="encounter-player" portrait={`/assets/previews/suits/${suitId}.png`}
+        <StatusBanner className="encounter-player" portrait={`assets/previews/suits/${suitId}.png`}
           portraitAlt={`${suitName} portrait`} name={suitName} percent={playerPercent}
           detail={`SPIDER-MAN · ${districtName}`} />
         <output className={`boss-combat-cue stage-${boss.attack?.stage ?? 'idle'}`} aria-live="polite">
@@ -203,7 +203,7 @@ export function SpiderHud({
 
   return (
     <div className="spider-hud" data-mode={hud.mode}>
-      <StatusBanner portrait={`/assets/previews/suits/${suitId}.png`}
+      <StatusBanner portrait={`assets/previews/suits/${suitId}.png`}
         portraitAlt={`${suitName} portrait`} name={suitName} percent={health}
         detail={`${onlineText} PLAYER`} detailStatus={online.status}
         onPortraitClick={() => setSwitcherOpen((open) => !open)} expanded={switcherOpen} />
@@ -222,7 +222,7 @@ export function SpiderHud({
               aria-label={`Switch to ${suit.name}`}
             >
               <Image
-                src={`/assets/previews/suits/${suit.id}.png`}
+                src={`assets/previews/suits/${suit.id}.png`}
                 alt=""
                 width={52}
                 height={52}

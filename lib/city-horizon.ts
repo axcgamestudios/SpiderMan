@@ -3,9 +3,7 @@ import * as THREE from 'three';
 /** Shared source geometry, repeated to the fog horizon; collision remains in RepeatingMeshWorld. */
 export class CityHorizon {
   readonly root = new THREE.Group();
-  detailScale = 1;
-  private readonly texturedMeshes: THREE.InstancedMesh[] = [];
-  private readonly silhouetteMeshes: THREE.InstancedMesh[] = [];
+  private readonly instancedMeshes: THREE.InstancedMesh[] = [];
   private readonly bounds: THREE.Box3;
   private readonly frustum = new THREE.Frustum();
   private readonly matrix = new THREE.Matrix4();
@@ -42,20 +40,15 @@ export class CityHorizon {
         : o.material;
       const detailedMaterial =
         materials.get(sourceMaterial.name) ?? sourceMaterial;
-      const silhouetteMaterial = detailedMaterial.clone();
-      if ('map' in silhouetteMaterial) silhouetteMaterial.map = null;
-      silhouetteMaterial.name = `${detailedMaterial.name}:distant-silhouette`;
-      for (const [collection, material] of [
-        [this.texturedMeshes, detailedMaterial],
-        [this.silhouetteMeshes, silhouetteMaterial],
-      ] as const) {
-        const mesh = new THREE.InstancedMesh(geometry, material, capacity);
-        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        mesh.frustumCulled = false;
-        mesh.count = 0;
-        collection.push(mesh);
-        this.root.add(mesh);
-      }
+      // Distant tiles keep the facade texture: stripping it made skyline tiles
+      // pop between textured and flat white whenever the player crossed the
+      // detail radius, which read as a flickering horizon against the sky.
+      const mesh = new THREE.InstancedMesh(geometry, detailedMaterial, capacity);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      this.instancedMeshes.push(mesh);
+      this.root.add(mesh);
     });
     const floor = full.children.find((o) => o.userData.walkableStreetSurface);
     if (floor instanceof THREE.Mesh) {
@@ -64,11 +57,11 @@ export class CityHorizon {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
       mesh.count = 0;
-      this.texturedMeshes.push(mesh);
+      this.instancedMeshes.push(mesh);
       this.root.add(mesh);
     }
     this.bounds = new THREE.Box3().makeEmpty();
-    for (const m of this.texturedMeshes) {
+    for (const m of this.instancedMeshes) {
       m.geometry.computeBoundingBox();
       this.bounds.union(m.geometry.boundingBox!);
     }
@@ -89,8 +82,7 @@ export class CityHorizon {
       cz = Math.round(position.z / this.depth);
     const rx = Math.ceil(camera.far / this.width) + 1,
       rz = Math.ceil(camera.far / this.depth) + 1;
-    let texturedCount = 0;
-    let silhouetteCount = 0;
+    let tileCount = 0;
     for (let x = cx - rx; x <= cx + rx; x++)
       for (let z = cz - rz; z <= cz + rz; z++) {
         if (fullTiles.has(`${x}:${z}`)) continue;
@@ -103,36 +95,21 @@ export class CityHorizon {
         )
           continue;
         this.matrix.makeTranslation(x * this.width, 0, z * this.depth);
-        const distance = this.box.distanceToPoint(position);
-        const textured =
-          distance < Math.max(Math.max(this.width, this.depth) * 1.4, Math.min(950, Math.max(this.width, this.depth) * 2.6) * this.detailScale);
-        const collection = textured
-          ? this.texturedMeshes
-          : this.silhouetteMeshes;
-        const index = textured ? texturedCount++ : silhouetteCount++;
-        for (const mesh of collection) mesh.setMatrixAt(index, this.matrix);
+        for (const mesh of this.instancedMeshes)
+          mesh.setMatrixAt(tileCount, this.matrix);
+        tileCount++;
       }
-    for (const mesh of this.texturedMeshes) {
-      mesh.count = texturedCount;
+    for (const mesh of this.instancedMeshes) {
+      mesh.count = tileCount;
       mesh.instanceMatrix.needsUpdate = true;
     }
-    for (const mesh of this.silhouetteMeshes) {
-      mesh.count = silhouetteCount;
-      mesh.instanceMatrix.needsUpdate = true;
-    }
-    this.root.userData.tileCount = texturedCount + silhouetteCount;
-    this.root.userData.texturedTileCount = texturedCount;
+    this.root.userData.tileCount = tileCount;
+    this.root.userData.texturedTileCount = tileCount;
   }
   dispose() {
     this.root.removeFromParent();
-    for (const m of [...this.texturedMeshes, ...this.silhouetteMeshes]) {
+    for (const m of this.instancedMeshes) {
       m.geometry.dispose();
-      if (this.silhouetteMeshes.includes(m)) {
-        for (const material of Array.isArray(m.material)
-          ? m.material
-          : [m.material])
-          material.dispose();
-      }
       m.dispose();
     }
   }

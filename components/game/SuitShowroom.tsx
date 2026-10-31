@@ -187,7 +187,7 @@ export default function SuitShowroom({
       try {
         onStatusRef.current('Opening abandoned warehouse', 3);
         const warehouse = await load<{ scene: THREE.Group }>(
-          '/assets/warehouse.glb',
+          'assets/warehouse.glb',
           (ratio) =>
             onStatusRef.current('Opening abandoned warehouse', 3 + ratio * 20),
         );

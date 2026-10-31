@@ -19,7 +19,7 @@ export type BossDefinition = {
 export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
   hulk: {
     id: 'hulk', name: 'HULK', subtitle: 'THE STRONGEST ONE THERE IS',
-    asset: '/assets/bosses/hulk.glb', portrait: '/assets/previews/bosses/hulk.png',
+    asset: 'assets/bosses/hulk.glb', portrait: 'assets/previews/bosses/hulk.png',
     height: 3.6, health: 560, speed: 6.4, modelYaw: Math.PI, accent: '#82f05f',
     clips: { idle: 'Idle_C', move: 'Walk_Fwd_C', hit: 'Giddiness', stunned: 'Giddiness', dead: 'Dead_B', intro: 'Fight_Start' },
     phases: [
@@ -43,7 +43,7 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
   },
   venom: {
     id: 'venom', name: 'VENOM', subtitle: 'LETHAL PROTECTOR',
-    asset: '/assets/bosses/venom.glb', portrait: '/assets/previews/bosses/venom.png',
+    asset: 'assets/bosses/venom.glb', portrait: 'assets/previews/bosses/venom.png',
     height: 3.1, health: 440, speed: 9.2, modelYaw: Math.PI, accent: '#f4f5ff',
     clips: { idle: 'Idle_C', move: 'Walk_Fwd_C', hit: 'SmashRecover', stunned: 'Giddiness', dead: 'SmashLieDown', intro: '103581_Symbiote' },
     phases: [
@@ -67,7 +67,7 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
   },
   ironman: {
     id: 'ironman', name: 'IRON MAN', subtitle: 'ARMORED AVENGER',
-    asset: '/assets/bosses/ironman.glb', portrait: '/assets/previews/bosses/ironman.png',
+    asset: 'assets/bosses/ironman.glb', portrait: 'assets/previews/bosses/ironman.png',
     height: 2.15, health: 390, speed: 9.5, modelYaw: Math.PI, accent: '#60dfff',
     clips: { idle: 'fly_idle', move: 'fly_slow', hit: 'pain_blocking', stunned: 'blocking', dead: 'victim1', intro: 'menu_action' },
     phases: [
