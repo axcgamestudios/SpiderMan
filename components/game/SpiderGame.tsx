@@ -224,6 +224,8 @@ type StreamedTile = {
   root: THREE.Group;
   anchorProxy: THREE.Object3D | null;
   walkables: THREE.Object3D[];
+  /** Spatial-hash colliders contributed by this tile, for incremental removal. */
+  colliders: THREE.Box3[];
   x: number;
   z: number;
 };
@@ -238,6 +240,8 @@ type DistrictStream = {
   tiles: Map<string, StreamedTile>;
   centerX: number;
   centerZ: number;
+  /** True while the district is detached from the scene after travelling away. */
+  parked: boolean;
 };
 
 const networkPose = (mode: string): ProceduralPose =>
@@ -309,6 +313,26 @@ function addSpatialCollider(
       const cell = index.get(key) ?? [];
       cell.push(collider);
       index.set(key, cell);
+    }
+  }
+}
+
+/** Exact inverse of addSpatialCollider: drops one collider from every cell it occupies. */
+function removeSpatialCollider(
+  index: Map<string, THREE.Box3[]>,
+  collider: THREE.Box3,
+) {
+  const minX = Math.floor(collider.min.x / COLLIDER_CELL_SIZE);
+  const maxX = Math.floor(collider.max.x / COLLIDER_CELL_SIZE);
+  const minZ = Math.floor(collider.min.z / COLLIDER_CELL_SIZE);
+  const maxZ = Math.floor(collider.max.z / COLLIDER_CELL_SIZE);
+  for (let x = minX; x <= maxX; x += 1) {
+    for (let z = minZ; z <= maxZ; z += 1) {
+      const cell = index.get(colliderCellKey(x, z));
+      if (!cell) continue;
+      const at = cell.indexOf(collider);
+      if (at >= 0) cell.splice(at, 1);
+      if (!cell.length) index.delete(colliderCellKey(x, z));
     }
   }
 }
@@ -1185,6 +1209,12 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
 
       const telemetry = new TraversalTelemetry();
       const quality = new RenderQualityManager();
+      /** Horizon instances only need to reach the fog, scaled down when the
+       * adaptive quality manager is under frame pressure. */
+      let horizonDetailFactor = 1;
+      const horizonRange = () =>
+        (scene.fog instanceof THREE.Fog ? scene.fog.far : camera.far) *
+        horizonDetailFactor;
       const tricks = new TrickSystem();
       const missions = new MissionSystem();
       const missionVisuals = new MissionVisuals(scene);
@@ -1192,6 +1222,11 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       let interactPressed = false;
       const bosses = new BossSystem();
       const bossVisuals = new BossVisuals(scene);
+      /** Reused web-hand targets: bossVisuals.update runs every frame. */
+      const bossHandBuffers: [THREE.Vector3, THREE.Vector3] = [
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+      ];
       let bossLoadingGeneration = 0;
       let bossAttackPressed = false;
       let bossHeavyPressed = false;
@@ -1344,6 +1379,9 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         speedBlur.resize(drawingSize.x, drawingSize.y);
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
+        // A new aspect ratio changes which skyline cells are on screen.
+        for (const stream of districtStreams.values())
+          stream.horizon.invalidate();
       };
       resize();
       const resizeObserver = new ResizeObserver(resize);
@@ -1708,19 +1746,39 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         return result;
       };
 
-      const rebuildStreamedCollision = (stream: DistrictStream) => {
-        spatialColliders.clear();
-        worldColliders.length = 0;
-        indexedColliderCount = 0;
-        const offset = new THREE.Vector3();
-        for (const tile of stream.tiles.values()) {
-          offset.set(tile.x * stream.tileWidth, 0, tile.z * stream.tileDepth);
-          for (const base of stream.baseColliders) {
-            const collider = base.clone().translate(offset);
-            addSpatialCollider(spatialColliders, collider);
-            indexedColliderCount += 1;
-          }
+      /** Static tiles never move again after mount: freeze their matrices so the
+       * per-frame scene update stops recomposing thousands of transforms. */
+      const freezeStaticSubtree = (root: THREE.Object3D) => {
+        root.updateMatrix();
+        root.updateMatrixWorld(true);
+        root.traverse((object) => {
+          object.matrixAutoUpdate = false;
+          object.matrixWorldNeedsUpdate = false;
+        });
+      };
+
+      /** Adds exactly one tile's translated colliders to the spatial hash. */
+      const attachTileColliders = (stream: DistrictStream, tile: StreamedTile) => {
+        const offset = new THREE.Vector3(
+          tile.x * stream.tileWidth,
+          0,
+          tile.z * stream.tileDepth,
+        );
+        for (const base of stream.baseColliders) {
+          const collider = base.clone().translate(offset);
+          addSpatialCollider(spatialColliders, collider);
+          tile.colliders.push(collider);
+          indexedColliderCount += 1;
         }
+        groundHeightCache.clear();
+      };
+
+      /** Removes exactly one tile's colliders; no full-world rebuild, no GC spike. */
+      const detachTileColliders = (tile: StreamedTile) => {
+        for (const collider of tile.colliders)
+          removeSpatialCollider(spatialColliders, collider);
+        indexedColliderCount -= tile.colliders.length;
+        tile.colliders.length = 0;
         groundHeightCache.clear();
       };
 
@@ -1739,7 +1797,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           stream.template.position.z + z * stream.tileDepth,
         );
         scene.add(root);
-        root.updateMatrixWorld(true);
+        freezeStaticSubtree(root);
 
         const anchorProxy = stream.anchorTemplate
           ? isOrigin
@@ -1753,6 +1811,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             z * stream.tileDepth,
           );
           scene.add(anchorProxy);
+          freezeStaticSubtree(anchorProxy);
           anchorTargets.add(anchorProxy);
           anchorTargetList = [...anchorTargets];
         }
@@ -1760,7 +1819,16 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         const walkables = tileWalkables(root);
         for (const surface of walkables) walkableSurfaces.add(surface);
         walkableSurfaceList = [...walkableSurfaces];
-        stream.tiles.set(key, { root, anchorProxy, walkables, x, z });
+        const tile: StreamedTile = {
+          root,
+          anchorProxy,
+          walkables,
+          colliders: [],
+          x,
+          z,
+        };
+        stream.tiles.set(key, tile);
+        attachTileColliders(stream, tile);
       };
 
       const unmountStreamedTile = (
@@ -1774,17 +1842,56 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           anchorTargets.delete(tile.anchorProxy);
           anchorTargetList = [...anchorTargets];
         }
+        detachTileColliders(tile);
         stream.tiles.delete(tileKey(tile.x, tile.z));
+        walkableSurfaceList = [...walkableSurfaces];
+      };
+
+      /** Detaches a travelled-away district from the scene entirely. Layer 31
+       * alone still leaves every tile inside the per-frame scene traversal. */
+      const parkDistrictStream = (stream: DistrictStream) => {
+        if (stream.parked) return;
+        stream.parked = true;
+        for (const tile of stream.tiles.values()) {
+          scene.remove(tile.root);
+          for (const surface of tile.walkables) walkableSurfaces.delete(surface);
+          if (tile.anchorProxy) {
+            scene.remove(tile.anchorProxy);
+            anchorTargets.delete(tile.anchorProxy);
+          }
+          detachTileColliders(tile);
+        }
+        scene.remove(stream.horizon.root);
+        anchorTargetList = [...anchorTargets];
+        walkableSurfaceList = [...walkableSurfaces];
+      };
+
+      const resumeDistrictStream = (stream: DistrictStream) => {
+        if (!stream.parked) return;
+        stream.parked = false;
+        for (const tile of stream.tiles.values()) {
+          scene.add(tile.root);
+          freezeStaticSubtree(tile.root);
+          if (tile.anchorProxy) {
+            scene.add(tile.anchorProxy);
+            freezeStaticSubtree(tile.anchorProxy);
+            anchorTargets.add(tile.anchorProxy);
+          }
+          for (const surface of tile.walkables) walkableSurfaces.add(surface);
+          attachTileColliders(stream, tile);
+        }
+        scene.add(stream.horizon.root);
+        anchorTargetList = [...anchorTargets];
         walkableSurfaceList = [...walkableSurfaces];
       };
 
       const updateWorldStreaming = (
         district: DistrictId,
         position: THREE.Vector3,
-        velocity?: THREE.Vector3,
+        eager = false,
       ) => {
         const stream = districtStreams.get(district);
-        if (!stream) return;
+        if (!stream || stream.parked) return;
         const config = getDistrict(district);
         const centerX = Math.round(
           (position.x - config.position[0]) / stream.tileWidth,
@@ -1792,30 +1899,16 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         const centerZ = Math.round(
           (position.z - config.position[2]) / stream.tileDepth,
         );
-        // Keep a full 3x3 block of detailed tiles mounted at all times, so the
-        // swap between the detailed city and the distant skyline happens more
-        // than a tile and a half away (far beyond the near fog), never beside
-        // the player.
+        // Minecraft-style near loading: only the 3x3 block around the player
+        // stays detailed. That is the minimum that keeps the detailed-to-
+        // skyline swap a full tile away, so nothing ever pops beside the player,
+        // while the render load stays bounded at nine tiles no matter how fast
+        // the player swings. The old velocity-prefetched second ring is what
+        // saturated weaker machines with up to twenty mounted tiles.
         const desired = new Set<string>();
         for (let dx = -1; dx <= 1; dx += 1)
           for (let dz = -1; dz <= 1; dz += 1)
             desired.add(tileKey(centerX + dx, centerZ + dz));
-        // While travelling, prefetch the second ring in the direction of
-        // motion so fast swings meet fully detailed streets ahead.
-        const speedX = velocity?.x ?? 0;
-        const speedZ = velocity?.z ?? 0;
-        const horizontalSpeed = Math.hypot(speedX, speedZ);
-        if (horizontalSpeed > 9) {
-          const dirX = speedX / horizontalSpeed;
-          const dirZ = speedZ / horizontalSpeed;
-          for (let dx = -2; dx <= 2; dx += 1)
-            for (let dz = -2; dz <= 2; dz += 1) {
-              if (Math.max(Math.abs(dx), Math.abs(dz)) < 2) continue;
-              const length = Math.hypot(dx, dz);
-              if ((dx / length) * dirX + (dz / length) * dirZ < 0.35) continue;
-              desired.add(tileKey(centerX + dx, centerZ + dz));
-            }
-        }
 
         // Keep the destination map tile ready before any racer gets there.
         // Geometry is shared with the main city; only the finish tile is pinned.
@@ -1825,16 +1918,15 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           const goalZ = Math.round((goal[2]-config.position[2])/stream.tileDepth);
           desired.add(tileKey(goalX,goalZ));
         }
-        let changed = false;
         for (const tile of Array.from(stream.tiles.values())) {
           if (desired.has(tileKey(tile.x, tile.z))) continue;
           unmountStreamedTile(stream, tile);
-          changed = true;
         }
 
-        // Mount a few shared-geometry tiles per frame, nearest first. Geometry
-        // and materials are shared, so a tile mount is a cheap scene-graph clone
-        // plus one collision rebuild per frame.
+        // Mount ONE shared-geometry tile per frame, nearest first. A mount is
+        // a scene-graph clone plus that tile's colliders only; spreading the
+        // work keeps every crossing frame inside budget instead of piling four
+        // mounts into a single stutter.
         const pending: { x: number; z: number; distance: number }[] = [];
         for (const key of desired) {
           if (stream.tiles.has(key)) continue;
@@ -1846,15 +1938,13 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           });
         }
         pending.sort((a, b) => a.distance - b.distance);
-        let mounted = 0;
-        for (const tile of pending) {
-          if (mounted >= 4) break;
-          mountStreamedTile(stream, tile.x, tile.z);
-          mounted += 1;
-          changed = true;
-        }
-        if (changed) rebuildStreamedCollision(stream);
-        stream.horizon.update(camera, position, stream.tiles);
+        // One mount per frame while playing keeps every tile crossing inside
+        // the frame budget. A district load is eager: the whole 3x3 block
+        // mounts synchronously behind the status overlay / travel fade.
+        const mountBudget = eager ? pending.length : 1;
+        for (let index = 0; index < pending.length && index < mountBudget; index += 1)
+          mountStreamedTile(stream, pending[index].x, pending[index].z);
+        stream.horizon.update(camera, position, stream.tiles, horizonRange());
         renderer.domElement.dataset.horizonTileCount = String(
           stream.horizon.root.userData.tileCount,
         );
@@ -2025,14 +2115,15 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
                 // the building solver. Treating them as walls traps the avatar and
                 // causes the repeated correction/sticking failure seen on imports.
                 if (collider.max.y <= GROUND_Y + 0.75) continue;
-                addSpatialCollider(spatialColliders, collider);
+                // Streamed tiles attach their translated collider clones when
+                // they mount (attachTileColliders); the origin tile follows the
+                // same path below, so nothing is indexed twice at load.
                 baseColliders.push(collider);
                 collider.getCenter(center);
                 collider.getSize(colliderSize);
                 matrix.compose(center, new THREE.Quaternion(), colliderSize);
                 proxy.setMatrixAt(proxyIndex, matrix);
                 proxyIndex += 1;
-                indexedColliderCount += 1;
                 detailedColliderCount += 1;
               }
               proxy.count = proxyIndex;
@@ -2078,9 +2169,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               );
               proceduralExtent = procedural.extent;
               for (const collider of procedural.colliders) {
-                addSpatialCollider(spatialColliders, collider);
                 baseColliders.push(collider);
-                indexedColliderCount += 1;
                 detailedColliderCount += 1;
               }
 
@@ -2203,6 +2292,14 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             if (config.id !== currentDistrict)
               horizon.root.traverse((object) => object.layers.set(31));
             scene.add(horizon.root);
+            const originTile: StreamedTile = {
+              root,
+              anchorProxy: anchorTemplate,
+              walkables: baseWalkables,
+              colliders: [],
+              x: 0,
+              z: 0,
+            };
             districtStreams.set(config.id, {
               horizon,
               template: root,
@@ -2214,20 +2311,10 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               // tiles at once. The cell-sized authored floor bridges this seam.
               tileWidth: tileSpacingX,
               tileDepth: tileSpacingZ,
-              tiles: new Map([
-                [
-                  tileKey(0, 0),
-                  {
-                    root,
-                    anchorProxy: anchorTemplate,
-                    walkables: baseWalkables,
-                    x: 0,
-                    z: 0,
-                  },
-                ],
-              ]),
+              tiles: new Map([[tileKey(0, 0), originTile]]),
               centerX: 0,
               centerZ: 0,
+              parked: false,
             });
             repeatingWorlds.set(
               config.id,
@@ -2237,7 +2324,18 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
                 tileSpacingZ,
               ),
             );
-            updateWorldStreaming(config.id, rooftopSpawn, new THREE.Vector3());
+            // The origin tile is the template itself; give it the same frozen
+            // matrices and collider set as every streamed clone.
+            freezeStaticSubtree(root);
+            if (anchorTemplate) freezeStaticSubtree(anchorTemplate);
+            attachTileColliders(districtStreams.get(config.id)!, originTile);
+            // Load-time raw lists are superseded by the per-tile spatial hash.
+            worldColliders.length = 0;
+            updateWorldStreaming(config.id, rooftopSpawn, true);
+            // A district streamed in for a pending trip stays fully detached
+            // until the traveller arrives; only then does it join the scene.
+            if (config.id !== currentDistrict)
+              parkDistrictStream(districtStreams.get(config.id)!);
             return root;
           })();
         districtModelPromises.set(config.model, modelPromise);
@@ -2407,28 +2505,25 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       };
 
       const collectAnchorCandidates = (ndc: THREE.Vector2, zipDirection?: THREE.Vector3) => {
+        // Anchors hang off static buildings, so a candidate list stays useful
+        // while the player travels: refresh on a short timer instead of every
+        // time the 2 m movement threshold breaks, which at swing speed used to
+        // re-run the whole 30+ raycast fan every single frame.
         if (
-          !zipDirection && elapsedTime - anchorSearchAt < 0.08 &&
-          anchorSearchPosition.distanceToSquared(player.position) < 4 &&
+          !zipDirection && elapsedTime - anchorSearchAt < 0.12 &&
+          anchorSearchPosition.distanceToSquared(player.position) < 100 &&
           anchorSearchAim.distanceToSquared(ndc) < 0.002 &&
           !zipPressed
         ) {
-          const chest = player.position
-            .clone()
-            .add(new THREE.Vector3(0, 1.3, 0));
+          // Cheap freshness pass only (no raycasts): drop candidates that the
+          // player has flown past. Attach-time line-of-sight is re-verified by
+          // the traversal solver before any web actually sticks.
           const valid = cachedAnchors.filter((candidate) => {
-            const direction = new THREE.Vector3()
-              .copy(candidate.point)
-              .sub(chest);
-            const distance = direction.length();
-            return (
-              distance > 3 &&
-              !raycastWorld(
-                chest,
-                direction.normalize(),
-                Math.max(0, distance - 0.08),
-              )
-            );
+            const dx = candidate.point.x - player.position.x;
+            const dy = candidate.point.y - (player.position.y + 1.3);
+            const dz = candidate.point.z - player.position.z;
+            const distanceSquared = dx * dx + dy * dy + dz * dz;
+            return distanceSquared > 9 && distanceSquared < 150 * 150;
           });
           if (valid.length) return valid;
         }
@@ -3269,6 +3364,11 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             currentDistrict = id;
             for (const [districtId, stream] of districtStreams) {
               const visible = districtId === id;
+              // Fully detach travelled-away districts instead of only hiding
+              // them on layer 31: hidden tiles still cost a full scene
+              // traversal and matrix pass every frame.
+              if (visible) resumeDistrictStream(stream);
+              else parkDistrictStream(stream);
               stream.horizon.root.traverse((object) =>
                 object.layers.set(visible ? 0 : 31),
               );
@@ -3786,7 +3886,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         }
 
         const streamingStart = performance.now();
-        updateWorldStreaming(currentDistrict, player.position, player.velocity);
+        updateWorldStreaming(currentDistrict, player.position);
         telemetry.record('streaming', performance.now() - streamingStart);
         const activeColliders = nearbyColliders(
           player.position,
@@ -3863,15 +3963,20 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         if(bossResult.events.some(event=>event.type==='death')) {
           traversal.velocity={x:0,y:0,z:0};traversal.swing=null;traversal.zip=null;inputSystem.resetActions();
         }
+        const bossSnapshot = bosses.snapshot();
         bossVisuals.update(
-          bosses.snapshot(),
+          bossSnapshot,
           delta,
-          avatar?.animator.webHands([new THREE.Vector3(), new THREE.Vector3()]) ?? [
+          avatar?.animator.webHands(bossHandBuffers) ?? [
             player.position.clone().add(new THREE.Vector3(-.25, 1.3, 0)),
             player.position.clone().add(new THREE.Vector3(.25, 1.3, 0)),
           ],
         );
-        renderer.domElement.dataset.boss=JSON.stringify(bosses.snapshot());
+        // Serialize only while a fight is actually running: stringify-ing a
+        // null snapshot every frame was pure garbage churn.
+        renderer.domElement.dataset.boss = bossSnapshot
+          ? JSON.stringify(bossSnapshot)
+          : '';
         if (
           exactWorld &&
           traversal.grounded &&
@@ -5115,6 +5220,9 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           raceVisuals.setParticleDensity(q.particleDensity);
           speedBlur.setResolutionScale(q.postprocessScale);
           renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25) * q.resolutionScale);
+          // Under frame pressure the instanced skyline first draws in closer
+          // (fog already hides the difference), before resolution drops.
+          horizonDetailFactor = q.farDetail;
           // Shadows are the one new cost: trade resolution before trading
           // anything else when the frame budget is under pressure.
           const shadowResolution = q.level >= 3 ? 1024 : 2048;

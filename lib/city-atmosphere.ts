@@ -9,6 +9,22 @@ import { SKY_PRESETS, type SkyPreset } from './city-weather';
 export const SUN_DIRECTION = new THREE.Vector3(-0.52, 0.42, -0.74).normalize();
 export const SUN_COLOR = '#ffe3c2';
 
+/** Per-preset colors parsed once. update() runs every frame and must not
+ * allocate Colors that the GC then has to sweep mid-swing. */
+const PRESET_COLORS = new Map<
+  SkyPreset,
+  { top: THREE.Color; horizon: THREE.Color; fog: THREE.Color }
+>((Object.keys(SKY_PRESETS) as SkyPreset[]).map((key) => [
+  key,
+  {
+    top: new THREE.Color(SKY_PRESETS[key].top),
+    horizon: new THREE.Color(SKY_PRESETS[key].horizon),
+    fog: new THREE.Color(SKY_PRESETS[key].fog),
+  },
+]));
+const NIGHT_FOG = new THREE.Color('#18283e');
+const scratchFog = new THREE.Color();
+
 /** Direction-space noise has no longitude wrap, texture edge, or skybox seam. */
 export function createCityAtmosphere(scene: THREE.Scene) {
   const u = {
@@ -52,6 +68,7 @@ export function createCityAtmosphere(scene: THREE.Scene) {
       delta: number,
       preset: SkyPreset = 'golden',
     ) {
+      const colors = PRESET_COLORS.get(preset) ?? PRESET_COLORS.get('golden')!;
       const selected = SKY_PRESETS[preset];
       const t = 1 - Math.exp(-delta * 2);
       u.time.value = elapsed;
@@ -61,16 +78,13 @@ export function createCityAtmosphere(scene: THREE.Scene) {
         2,
         delta,
       );
-      u.top.value.lerp(new THREE.Color(selected.top), t);
-      u.horizon.value.lerp(new THREE.Color(selected.horizon), t);
+      u.top.value.lerp(colors.top, t);
+      u.horizon.value.lerp(colors.horizon, t);
       u.clouds.value = THREE.MathUtils.lerp(u.clouds.value, selected.clouds, t);
       mesh.position.copy(position);
       if (scene.fog) {
         scene.fog.color.lerp(
-          new THREE.Color(selected.fog).lerp(
-            new THREE.Color('#18283e'),
-            u.night.value,
-          ),
+          scratchFog.copy(colors.fog).lerp(NIGHT_FOG, u.night.value),
           t,
         );
         if (scene.fog instanceof THREE.Fog) {

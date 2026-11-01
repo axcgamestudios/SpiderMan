@@ -12,7 +12,10 @@ export function qualitySettings(level: number): RenderQualitySettings {
   const tier = Number.isFinite(level) ? Math.max(0, Math.min(6, Math.floor(level))) : 0;
   return { level: tier, farDetail: tier >= 1 ? .65 : 1, weatherDensity: tier >= 2 ? .5 : 1,
     particleDensity: tier >= 3 ? .5 : 1, postprocessScale: tier >= 4 ? .65 : .85,
-    secondaryAnimationHz: tier >= 5 ? 20 : 60, resolutionScale: tier >= 6 ? .85 : 1 };
+    secondaryAnimationHz: tier >= 5 ? 20 : 60,
+    // Resolution is the strongest lever: start easing it before the deep
+    // tiers instead of waiting until everything else is already stripped.
+    resolutionScale: tier >= 6 ? .85 : tier >= 3 ? .92 : 1 };
 }
 
 /** Changes one tier at a time, with a wider/longer recovery band to prevent oscillation. */
@@ -34,14 +37,16 @@ export class RenderQualityManager {
     this.averageMs += (frameMs - this.averageMs) * (1 - Math.exp(-dt * 2));
     this.cooldown = Math.max(0, this.cooldown - dt);
     if (this.cooldown > 0) return false;
+    // React to sustained slowness within ~1.5 s instead of 3 s: a frame budget
+    // that is already blown should not stay that way for seconds on end.
     this.slowSeconds = this.averageMs > 23 ? this.slowSeconds + dt : 0;
     this.fastSeconds = this.averageMs < 18 ? this.fastSeconds + dt : 0;
-    const next = this.slowSeconds >= 3 ? Math.min(6, this.level + 1)
+    const next = this.slowSeconds >= 1.5 ? Math.min(6, this.level + 1)
       : this.fastSeconds >= 8 ? Math.max(0, this.level - 1) : this.level;
     if (next === this.level) return false;
     this.level = next;
     this.slowSeconds = this.fastSeconds = 0;
-    this.cooldown = 2;
+    this.cooldown = 1.2;
     return true;
   }
 }

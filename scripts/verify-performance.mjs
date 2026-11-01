@@ -20,7 +20,11 @@ console.log('PASS telemetry ring bounds memory, rejects invalid samples, reports
 const quality = new RenderQualityManager(), changed = [];
 for (let i = 0; i < 2200; i++) if (quality.update(1 / 60, 32)) changed.push(quality.settings);
 assert.deepEqual(changed.map(item => item.level), [1, 2, 3, 4, 5, 6]);
-for (const settings of changed.slice(0, 5)) assert.equal(settings.resolutionScale, 1);
+// Resolution eases in from tier 3 (the strongest lag lever) before the deep
+// weather/particle tiers strip the scene character.
+for (const settings of changed.slice(0, 2)) assert.equal(settings.resolutionScale, 1);
+for (const settings of changed.slice(2, 5)) assert.equal(settings.resolutionScale, .92);
+assert.equal(changed[0].farDetail, .65);
 assert.equal(changed[0].weatherDensity, 1);
 assert.equal(changed[1].particleDensity, 1);
 assert.equal(changed[3].secondaryAnimationHz, 60);
