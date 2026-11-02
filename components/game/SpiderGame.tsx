@@ -55,10 +55,14 @@ import { CityWeather, SKY_PRESETS, type SkyPreset } from '@/lib/city-weather';
 import { CityHorizon } from '@/lib/city-horizon';
 import {
   createCityAtmosphere,
+  cycleNightLevel,
   makeSkyEnvironmentTexture,
+  MOON_DIRECTION,
   SUN_COLOR,
   SUN_DIRECTION,
 } from '@/lib/city-atmosphere';
+import { CityNightLights } from '@/lib/city-night-lights';
+import { FirstPersonArms } from '@/lib/first-person-arms';
 import { WebStrand, WEB_STRAND_MODEL } from '@/lib/web-strand';
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as THREE from 'three';
@@ -170,10 +174,13 @@ export type SpiderGameHandle = {
 };
 
 type Props = {
-  night?: boolean;
+  /** Automatic cycle by default; explicit night/day are manual holds. */
+  timeOfDay?: 'cycle' | 'night' | 'day';
   sky?: SkyPreset;
   experimentalCamera?: boolean;
   cameraZoom?: number;
+  firstPerson?: boolean;
+  onFirstPersonChange?: (value: boolean) => void;
   paused?: boolean;
   onRaceView?: (view: RaceView) => void;
   onMapPlayers?: (players: MapPlayer[]) => void;
@@ -946,7 +953,13 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       scene.fog = new THREE.Fog('#9acbe3', 240, 620);
       const atmosphere = createCityAtmosphere(scene);
       const weather = new CityWeather(scene);
+      const nightLights = new CityNightLights();
       const camera = new THREE.PerspectiveCamera(66, 1, 0.08, 1200);
+      // The first-person arms are parented to the camera, so the camera
+      // itself has to live in the scene graph for them to render.
+      scene.add(camera);
+      const fpArms = new FirstPersonArms();
+      camera.add(fpArms.root);
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         powerPreference: 'high-performance',
@@ -979,6 +992,15 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       const rim = new THREE.DirectionalLight('#8fb0e8', 0.4);
       rim.position.set(120, 65, -120);
       scene.add(rim);
+      // Moonlight tints: the shared "sun" light becomes the moon at night,
+      // cool and soft instead of merely dim.
+      const MOON_COLOR = new THREE.Color('#b8cdf5');
+      const SUN_TINT = new THREE.Color(SUN_COLOR);
+      const DAY_SKY_FILL = new THREE.Color('#bdd5f2');
+      const NIGHT_SKY_FILL = new THREE.Color('#26395e');
+      const DAY_GROUND_FILL = new THREE.Color('#8a7a66');
+      const NIGHT_GROUND_FILL = new THREE.Color('#1b2233');
+      const lightDirection = new THREE.Vector3();
       const sun = new THREE.DirectionalLight(SUN_COLOR, 3.0);
       sun.position.copy(SUN_DIRECTION).multiplyScalar(620);
       sun.castShadow = true;
@@ -1275,6 +1297,20 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       let predictionAfter = 0;
       let cameraRoll = 0;
       let cameraBoomDistance = 7;
+      /** Wall-top clearance read by the HUD; recomputed inside the third-
+       * person camera block only, so it keeps its last value in FP mode. */
+      let wallTopClearance = Infinity;
+      /** First-person view: V key or the settings switch. The full avatar is
+       * hidden and procedural suit-coloured arms are parented to the camera. */
+      let firstPerson = false;
+      let firstPersonThwipSwing = false;
+      let firstPersonThwipZip = false;
+      const fpEye = new THREE.Vector3();
+      const fpLook = new THREE.Vector3();
+      const fpForward = new THREE.Vector3();
+      const fpHand = new THREE.Vector3();
+      const fpSwingTarget = new THREE.Vector3();
+      const fpZipTarget = new THREE.Vector3();
       let cameraYaw = initialDistrict.spawnYaw ?? 0;
       let cameraPitch = initialDistrict.spawnPitch ?? 0.08;
       let wallCameraBlend = 0;
@@ -1308,7 +1344,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       let elapsedTime = 0;
       let visualTime = 0;
       let pausedVisualSky: SkyPreset | null = null;
-      let pausedVisualNight: boolean | null = null;
+      let pausedVisualNight: number | null = null;
       let jumpPressed = false;
       let glidePressed = false,
         chargeJumpReleased = false,
@@ -2277,6 +2313,9 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             anchorTargetList = [...anchorTargets];
             const baseWalkables = tileWalkables(root);
             weather.apply(root);
+            // Night window lights chain onto the weather hook; order matters
+            // so both compile into one shared program per material.
+            nightLights.apply(root);
             const distant = await loadModel<{ scene: THREE.Group }>(
               config.horizonModel!,
               `${config.name} skyline`,
@@ -2293,6 +2332,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               tileSpacingZ,
             );
             weather.apply(horizon.root);
+            nightLights.apply(horizon.root);
             if (config.id !== currentDistrict)
               horizon.root.traverse((object) => object.layers.set(31));
             scene.add(horizon.root);
@@ -2454,6 +2494,8 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         const previousAvatar = avatar;
         avatar = nextAvatar;
         activeSuitId = suit.id;
+        // First-person arms wear the colours of whichever suit just loaded.
+        fpArms.setSuit(nextAvatar.model);
         disposeAvatar(previousAvatar);
         renderer.domElement.dataset.suit = suit.id;
         renderer.domElement.dataset.animationClips = animator.clips
@@ -2836,6 +2878,10 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         }
         if (event.code === 'KeyR' && firstPress) rollPressed = true;
         if (event.code === 'KeyG' && firstPress) glidePressed = true;
+        if (event.code === 'KeyV' && firstPress && !event.metaKey && !event.ctrlKey) {
+          firstPerson = !firstPerson;
+          callbacksRef.current.onFirstPersonChange?.(firstPerson);
+        }
         if (
           firstPress &&
           ['KeyG', 'KeyC', 'KeyX', 'KeyZ', 'KeyL'].includes(event.code) &&
@@ -3654,6 +3700,16 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             camera.updateProjectionMatrix();
           }
         }
+        // Automatic day/night cycle (day runs long) unless the player has
+        // pinned a time of day in the settings panel. One continuous 0..1
+        // level drives the sky, the fog, the moonlight and the city windows.
+        const timeMode = callbacksRef.current.timeOfDay ?? 'cycle';
+        const targetNight =
+          timeMode === 'night'
+            ? 1
+            : timeMode === 'day'
+              ? 0
+              : cycleNightLevel(elapsedTime);
         if (paused) {
           if (!wasPaused) {
             wasPaused = true;
@@ -3662,17 +3718,16 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               document.exitPointerLock();
             renderer.domElement.dataset.paused = 'true';
           }
-          const requestedNight = callbacksRef.current.night ?? false;
           const visualPresetChanged =
             pausedVisualSky !== effectiveSky ||
-            pausedVisualNight !== requestedNight;
+            pausedVisualNight !== targetNight;
           pausedVisualSky = effectiveSky;
-          pausedVisualNight = requestedNight;
+          pausedVisualNight = targetNight;
           const atmosphereDelta = visualPresetChanged ? 4 : visualDelta;
           atmosphere.update(
             visualTime,
             player.position,
-            requestedNight,
+            targetNight,
             atmosphereDelta,
             effectiveSky,
           );
@@ -3680,20 +3735,35 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             visualTime,
             player.position,
             effectiveSky,
-            requestedNight,
+            targetNight > 0.5,
             atmosphereDelta,
           );
-          sun.intensity = THREE.MathUtils.lerp(3.0, 0.22, atmosphere.night);
-          skyFill.intensity = THREE.MathUtils.lerp(1.02, 0.4, atmosphere.night);
-          rim.intensity = THREE.MathUtils.lerp(0.4, 1.05, atmosphere.night);
+          nightLights.update(atmosphere.night, visualTime);
+          const nightLevel = atmosphere.night;
+          sun.intensity = THREE.MathUtils.lerp(3.0, 0.6, nightLevel);
+          sun.color.lerpColors(SUN_TINT, MOON_COLOR, nightLevel);
+          skyFill.intensity = THREE.MathUtils.lerp(1.02, 0.5, nightLevel);
+          skyFill.color.lerpColors(DAY_SKY_FILL, NIGHT_SKY_FILL, nightLevel);
+          skyFill.groundColor.lerpColors(
+            DAY_GROUND_FILL,
+            NIGHT_GROUND_FILL,
+            nightLevel,
+          );
+          rim.intensity = THREE.MathUtils.lerp(0.4, 1.0, nightLevel);
           sun.position
             .copy(player.position)
-            .addScaledVector(SUN_DIRECTION, 620);
+            .addScaledVector(
+              lightDirection
+                .copy(SUN_DIRECTION)
+                .lerp(MOON_DIRECTION, nightLevel)
+                .normalize(),
+              620,
+            );
           sun.target.position.copy(player.position);
-          const pausedEnvironmentKey = `${effectiveSky}:${requestedNight ? 'n' : 'd'}`;
+          const pausedEnvironmentKey = `${effectiveSky}:${targetNight > 0.5 ? 'n' : 'd'}`;
           if (pausedEnvironmentKey !== activeEnvironmentKey) {
             activeEnvironmentKey = pausedEnvironmentKey;
-            applySkyEnvironment(effectiveSky, requestedNight);
+            applySkyEnvironment(effectiveSky, targetNight > 0.5);
           }
           speedBlur.render(renderer, scene, camera);
           return;
@@ -3718,7 +3788,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         atmosphere.update(
           visualTime,
           player.position,
-          callbacksRef.current.night ?? false,
+          targetNight,
           delta,
           effectiveSky,
         );
@@ -3726,24 +3796,40 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           visualTime,
           player.position,
           effectiveSky,
-          callbacksRef.current.night ?? false,
+          targetNight > 0.5,
           delta,
         );
-        sun.intensity = THREE.MathUtils.lerp(3.0, 0.22, atmosphere.night);
-        skyFill.intensity = THREE.MathUtils.lerp(1.02, 0.4, atmosphere.night);
-        rim.intensity = THREE.MathUtils.lerp(0.4, 1.05, atmosphere.night);
+        nightLights.update(atmosphere.night, visualTime);
+        {
+          const nightLevel = atmosphere.night;
+          sun.intensity = THREE.MathUtils.lerp(3.0, 0.6, nightLevel);
+          sun.color.lerpColors(SUN_TINT, MOON_COLOR, nightLevel);
+          skyFill.intensity = THREE.MathUtils.lerp(1.02, 0.5, nightLevel);
+          skyFill.color.lerpColors(DAY_SKY_FILL, NIGHT_SKY_FILL, nightLevel);
+          skyFill.groundColor.lerpColors(
+            DAY_GROUND_FILL,
+            NIGHT_GROUND_FILL,
+            nightLevel,
+          );
+          rim.intensity = THREE.MathUtils.lerp(0.4, 1.0, nightLevel);
+          sun.position
+            .copy(player.position)
+            .addScaledVector(
+              lightDirection
+                .copy(SUN_DIRECTION)
+                .lerp(MOON_DIRECTION, nightLevel)
+                .normalize(),
+              620,
+            );
+          sun.target.position.copy(player.position);
+        }
         // Lit facades reflect the sky: rebuild the PMREM environment whenever
         // the preset or the day/night state actually changes.
-        const nightNow = callbacksRef.current.night ?? false;
-        const environmentKey = `${effectiveSky}:${nightNow ? 'n' : 'd'}`;
+        const environmentKey = `${effectiveSky}:${targetNight > 0.5 ? 'n' : 'd'}`;
         if (environmentKey !== activeEnvironmentKey) {
           activeEnvironmentKey = environmentKey;
-          applySkyEnvironment(effectiveSky, nightNow);
+          applySkyEnvironment(effectiveSky, targetNight > 0.5);
         }
-        sun.position
-          .copy(player.position)
-          .addScaledVector(SUN_DIRECTION, 620);
-        sun.target.position.copy(player.position);
         if (!ready) {
           renderer.render(scene, camera);
           return;
@@ -4744,6 +4830,88 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           });
         }
 
+        // ---- First-person camera ----
+        // Runs before the web strand so the strand can start at the visible
+        // palm, and replaces the third-person orbit entirely: the camera sits
+        // at eye height and aims with the same yaw/pitch the mouse controls.
+        const requestedFirstPerson = callbacksRef.current.firstPerson === true;
+        if (requestedFirstPerson !== firstPerson) firstPerson = requestedFirstPerson;
+        const fpSpeed = result.context.speed;
+        const fpActive = firstPerson && ready;
+        if (fpActive) {
+          const eyeHeight = avatarPose === 'perch' ? 1.38 : 1.66;
+          const bobStrength = reducedMotion ? 0 : Math.min(fpSpeed / 46, 1);
+          const bob =
+            Math.sin(elapsedTime * (7 + Math.min(fpSpeed, 18) * 0.5)) *
+            0.014 *
+            bobStrength;
+          fpEye.set(
+            player.position.x,
+            player.position.y + eyeHeight + bob,
+            player.position.z,
+          );
+          camera.position.lerp(fpEye, 1 - Math.exp(-26 * delta));
+          fpForward.set(
+            Math.sin(cameraYaw) * Math.cos(cameraPitch),
+            Math.sin(cameraPitch),
+            Math.cos(cameraYaw) * Math.cos(cameraPitch),
+          );
+          fpLook.copy(camera.position).add(fpForward);
+          camera.up.set(0, 1, 0);
+          camera.lookAt(fpLook);
+          cameraRoll = damp(
+            cameraRoll,
+            reducedMotion
+              ? 0
+              : Math.max(-0.05, Math.min(0.05, result.context.camera.roll)),
+            5,
+            delta,
+          );
+          camera.rotateZ(cameraRoll);
+          camera.fov = damp(camera.fov, 80, 7, delta);
+          camera.updateProjectionMatrix();
+          camera.updateMatrixWorld();
+          fpArms.root.visible = true;
+          const swingAttached = Boolean(traversal.swing);
+          const zipAttached = Boolean(traversal.zip);
+          if (
+            (swingAttached && !firstPersonThwipSwing) ||
+            (zipAttached && !firstPersonThwipZip)
+          )
+            fpArms.thwip();
+          firstPersonThwipSwing = swingAttached;
+          firstPersonThwipZip = zipAttached;
+          fpArms.update(camera, {
+            delta,
+            time: visualTime,
+            speed: fpSpeed,
+            grounded: traversal.grounded,
+            swingTargetWorld: traversal.swing?.anchor
+              ? fpSwingTarget.set(
+                  traversal.swing.anchor.x,
+                  traversal.swing.anchor.y,
+                  traversal.swing.anchor.z,
+                )
+              : null,
+            zipTargetWorld: traversal.zip
+              ? fpZipTarget.set(
+                  (traversal.zip.surfacePoint ?? traversal.zip.target)?.x ?? 0,
+                  (traversal.zip.surfacePoint ?? traversal.zip.target)?.y ?? 0,
+                  (traversal.zip.surfacePoint ?? traversal.zip.target)?.z ?? 0,
+                )
+              : null,
+            wallCrawl:
+              traversal.wallCrawlActive || Boolean(traversal.wallRunActive),
+            gliding: traversal.mode === 'glide',
+          });
+          if (avatar) avatar.root.visible = false;
+        } else {
+          fpArms.root.visible = false;
+          if (avatar) avatar.root.visible = true;
+          firstPersonThwipSwing = Boolean(traversal.swing);
+          firstPersonThwipZip = Boolean(traversal.zip);
+        }
+
         const grappleLineVisible = Boolean(
           traversal.zip &&
           traversal.zip.targetId !== 'air-zip-no-anchor' &&
@@ -4752,9 +4920,11 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         const webVisible = Boolean(traversal.swing || grappleLineVisible);
         webLine.visible = webVisible && !webStrand;
         if (webVisible) {
-          const hand = avatar
-            ? avatar.animator.webHand(new THREE.Vector3())
-            : player.position.clone().add(new THREE.Vector3(0, 1.58, 0));
+          const hand = fpActive
+            ? fpArms.palmWorld(1, fpHand)
+            : avatar
+              ? avatar.animator.webHand(new THREE.Vector3())
+              : player.position.clone().add(new THREE.Vector3(0, 1.58, 0));
           const webTarget =
             traversal.swing?.anchor ??
             traversal.zip?.surfacePoint ??
@@ -4799,6 +4969,13 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         );
         renderer.domElement.dataset.flowChain = String(ability?.flow ?? 0);
         const speed = result.context.speed;
+        const experimentalCamera = callbacksRef.current.experimentalCamera === true;
+        const cameraZoom = clamp(callbacksRef.current.cameraZoom ?? 1, 1, 10);
+        const cameraZoomBlend = experimentalCamera ? (cameraZoom - 1) / 9 : 0;
+        // The third-person orbit, wall camera, combat framing and boom are
+        // all skipped in first person: the FP block above already placed and
+        // aimed the camera at eye height.
+        if (!fpActive) {
         // Camera yaw is the player's swing heading. Following velocity here
         // feeds anchor-induced drift back into input and overrides mouse aim.
         const perched = avatarPose === 'perch' && player.grounded;
@@ -4808,10 +4985,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           : ironCamera
             ? 5.4 + Math.min(speed / 72, 1) * 1.8
             : Math.min(14, result.context.camera.followDistance);
-        const experimentalCamera = callbacksRef.current.experimentalCamera === true;
-        const cameraZoom = clamp(callbacksRef.current.cameraZoom ?? 1, 1, 10);
-        const cameraZoomBlend = experimentalCamera ? (cameraZoom - 1) / 9 : 0;
-        const distance = Math.max(3.15, baseDistance * THREE.MathUtils.lerp(1, .42, cameraZoomBlend));
+        const distance = Math.max(3.15, baseDistance * 0.82 * THREE.MathUtils.lerp(1, .42, cameraZoomBlend));
         const horizontalDistance = Math.cos(cameraPitch) * distance;
         const wallNormal = result.context.wallNormal
           ? new THREE.Vector3(
@@ -4820,7 +4994,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               result.context.wallNormal.z,
             ).normalize()
           : null;
-        let wallTopClearance = Infinity;
+        wallTopClearance = Infinity;
         if (wallNormal) {
           for (const collider of activeColliders) {
             const nearX =
@@ -5046,6 +5220,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         camera.up.set(0, 1, 0);
         camera.lookAt(target);
         camera.rotateZ(cameraRoll);
+        }
         speedBlur.update(
           delta,
           speed,
@@ -5236,7 +5411,11 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           renderer.domElement.dataset.cameraDistance = camera.position
             .distanceTo(player.position)
             .toFixed(2);
-          renderer.domElement.dataset.cameraMode = experimentalCamera ? 'experimental' : 'default';
+          renderer.domElement.dataset.cameraMode = firstPerson
+            ? 'first-person'
+            : experimentalCamera
+              ? 'experimental'
+              : 'default';
           renderer.domElement.dataset.cameraZoom = cameraZoom.toFixed(0);
           renderer.domElement.dataset.cameraPosition = camera.position
             .toArray()
@@ -5274,6 +5453,9 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           resize();
           renderer.domElement.dataset.qualityTier = String(q.level);
         }
+        // Cycle diagnostics for the HUD/telemetry surface.
+        renderer.domElement.dataset.timeMode = timeMode;
+        renderer.domElement.dataset.nightLevel = atmosphere.night.toFixed(2);
         const renderStart = performance.now();
         renderer.info.autoReset = false;
         renderer.info.reset();
@@ -5373,6 +5555,7 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
         for (const stream of districtStreams.values()) stream.horizon.dispose();
         trialPanel?.remove();
         webStrand?.dispose();
+        fpArms.dispose();
         perchAimMarker.geometry.dispose(); (perchAimMarker.material as THREE.Material).dispose();
         webGeometry.dispose();
         (webLine.material as THREE.Material).dispose();

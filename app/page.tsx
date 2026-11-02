@@ -50,9 +50,11 @@ export default function Home() {
   const [raceView, setRaceView] = useState(emptyRaceView);
   const [mapPlayers, setMapPlayers] = useState<MapPlayer[]>([]);
   const [sky, setSky] = useState<SkyPreset>('golden');
-  const [night, setNight] = useState(false);
+  // Automatic cycle by default; the settings button can pin night or day.
+  const [timeOfDay, setTimeOfDay] = useState<'cycle' | 'night' | 'day'>('cycle');
   const [experimentalCamera, setExperimentalCamera] = useState(false);
   const [cameraZoom, setCameraZoom] = useState(1);
+  const [firstPerson, setFirstPerson] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
     const toggle = () => setSettingsOpen(value => !value);
@@ -161,9 +163,11 @@ export default function Home() {
         <SpiderGame
           ref={gameRef}
           sky={sky}
-          night={night}
+          timeOfDay={timeOfDay}
           experimentalCamera={experimentalCamera}
           cameraZoom={cameraZoom}
+          firstPerson={firstPerson}
+          onFirstPersonChange={setFirstPerson}
           paused={settingsOpen || phase !== 'game' || Boolean(mapTransition)}
           onRaceView={setRaceView}
           onMapPlayers={setMapPlayers}
@@ -279,8 +283,12 @@ export default function Home() {
           <RaceHud
             view={raceView}
             action={(action) => gameRef.current?.raceAction(action)}
-            night={night}
-            onNight={() => setNight((value) => !value)}
+            timeOfDay={timeOfDay}
+            onTimeOfDay={() =>
+              setTimeOfDay((current) =>
+                current === 'cycle' ? 'night' : current === 'night' ? 'day' : 'cycle',
+              )
+            }
             sky={sky}
             onSky={setSky}
             district={currentDistrict}
@@ -288,6 +296,8 @@ export default function Home() {
             onExperimentalCamera={setExperimentalCamera}
             cameraZoom={cameraZoom}
             onCameraZoom={setCameraZoom}
+            firstPerson={firstPerson}
+            onFirstPerson={setFirstPerson}
             open={settingsOpen}
             onOpenChange={setSettingsOpen}
           />

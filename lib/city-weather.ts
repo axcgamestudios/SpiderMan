@@ -59,6 +59,10 @@ export class CityWeather {
     storm: { value: 0 },
     pixelRatio: { value: 1 },
   };
+  /** Parsed once: update() runs every frame and must not allocate. */
+  private readonly nightTint = new THREE.Color('#4d628c');
+  private readonly snowTint = new THREE.Color('#d8e8f5');
+  private readonly dayTint = new THREE.Color('#ffffff');
   constructor(scene: THREE.Scene) {
     const p = new Float32Array(3000 * 3);
     let seed = 1999;
@@ -142,9 +146,11 @@ export class CityWeather {
       2,
       delta,
     );
-    const target = new THREE.Color(
-      night ? '#4d628c' : isSnowSky(sky) ? '#d8e8f5' : '#ffffff',
-    );
+    const target = night
+      ? this.nightTint
+      : isSnowSky(sky)
+        ? this.snowTint
+        : this.dayTint;
     this.tint.value.lerp(target, 1 - Math.exp(-delta * 2));
     this.uniforms.time.value = time;
     this.uniforms.center.value.copy(center);

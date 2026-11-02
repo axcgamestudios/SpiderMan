@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SKY_PRESETS, type SkyPreset } from './city-weather';
+import { SKY_PRESETS, type SkyPreset } from './city-weather.ts';
 
 /**
  * One authoritative sun direction shared by the sky shader, the directional
@@ -8,6 +8,29 @@ import { SKY_PRESETS, type SkyPreset } from './city-weather';
  */
 export const SUN_DIRECTION = new THREE.Vector3(-0.52, 0.42, -0.74).normalize();
 export const SUN_COLOR = '#ffe3c2';
+/** Where the moon sits once the sun has set. Roughly opposite azimuth so
+ * dusk and dawn read as two different parts of the sky. */
+export const MOON_DIRECTION = new THREE.Vector3(0.44, 0.52, 0.6).normalize();
+
+/** Automatic day/night cycle. The day is deliberately much longer than the
+ * night: swinging through golden-hour streets is the core of the game, and
+ * night is the special event the city lights up for. */
+export const DAY_NIGHT_CYCLE = Object.freeze({
+  day: 170,
+  dusk: 14,
+  night: 70,
+  dawn: 14,
+});
+/** Continuous night level 0 (full day) .. 1 (full night) for a cycle clock. */
+export function cycleNightLevel(seconds: number): number {
+  const { day, dusk, night, dawn } = DAY_NIGHT_CYCLE;
+  const total = day + dusk + night + dawn;
+  const p = ((seconds % total) + total) % total;
+  if (p < day) return 0;
+  if (p < day + dusk) return (p - day) / dusk;
+  if (p < day + dusk + night) return 1;
+  return 1 - (p - day - dusk - night) / dawn;
+}
 
 /** Per-preset colors parsed once. update() runs every frame and must not
  * allocate Colors that the GC then has to sweep mid-swing. */
@@ -58,6 +81,10 @@ export function createCityAtmosphere(scene: THREE.Scene) {
  sky+=vec3(1.,.72,.42)*pow(sun,20.)*1.05*(1.-night)*(1.-clouds*.6);
  float cloud=smoothstep(.64-clouds*.3,.78-clouds*.26,fbm(d*7.+vec3(time*.003,0.,time*.001)));cloud*=smoothstep(-.03,.18,d.y);vec3 cloudTint=mix(mix(horizon,vec3(1.),.3),vec3(.027,.042,.075),night);sky=mix(sky,cloudTint,cloud*.68);
  float stars=pow(hash(floor(d*1100.)),1600.)*smoothstep(.08,.5,d.y)*night*(1.-cloud);sky+=vec3(.6,.75,1.)*stars;
+ float moon=max(0.,dot(d,normalize(vec3(.44,.52,.6))));
+ sky+=vec3(.88,.93,1.)*smoothstep(.99935,.99972,moon)*1.55*night;
+ sky+=vec3(.5,.6,.85)*pow(moon,800.)*.5*night;
+ sky+=vec3(.18,.24,.4)*pow(moon,20.)*.12*night;
  gl_FragColor=vec4(sky,1.);
  #include <tonemapping_fragment>
  #include <colorspace_fragment>
@@ -72,7 +99,7 @@ export function createCityAtmosphere(scene: THREE.Scene) {
     update(
       elapsed: number,
       position: THREE.Vector3,
-      night: boolean,
+      night: number | boolean,
       delta: number,
       preset: SkyPreset = 'golden',
     ) {
@@ -80,9 +107,17 @@ export function createCityAtmosphere(scene: THREE.Scene) {
       const selected = SKY_PRESETS[preset];
       const t = 1 - Math.exp(-delta * 2);
       u.time.value = elapsed;
+      // The cycle feeds a continuous 0..1 level so dusk and dawn ease in over
+      // several seconds instead of snapping like a light switch.
+      const targetNight =
+        typeof night === 'number'
+          ? THREE.MathUtils.clamp(night, 0, 1)
+          : night
+            ? 1
+            : 0;
       u.night.value = THREE.MathUtils.damp(
         u.night.value,
-        night ? 1 : 0,
+        targetNight,
         2,
         delta,
       );

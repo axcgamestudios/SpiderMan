@@ -1,7 +1,7 @@
 'use client';
 import SwingProfileSettings from './SwingProfileSettings';
 import ControllerSettings from './ControllerSettings';
-import { Camera, Flag, Moon, Play, Settings, Sun, X } from 'lucide-react';
+import { Camera, Flag, Moon, Play, Settings, Sun, Sunrise, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatRaceTime, type RaceView } from '@/lib/race-session';
 import { SKY_PRESETS, type SkyPreset } from '@/lib/city-weather';
@@ -10,8 +10,8 @@ import type { RaceAction } from './SpiderGame';
 export function RaceHud({
   view,
   action,
-  night,
-  onNight,
+  timeOfDay,
+  onTimeOfDay,
   sky,
   onSky,
   district,
@@ -19,13 +19,15 @@ export function RaceHud({
   onExperimentalCamera,
   cameraZoom,
   onCameraZoom,
+  firstPerson,
+  onFirstPerson,
   open,
   onOpenChange,
 }: {
   view: RaceView;
   action: (a: RaceAction) => void;
-  night: boolean;
-  onNight: () => void;
+  timeOfDay: 'cycle' | 'night' | 'day';
+  onTimeOfDay: () => void;
   sky: SkyPreset;
   onSky: (sky: SkyPreset) => void;
   district: DistrictId;
@@ -33,6 +35,8 @@ export function RaceHud({
   onExperimentalCamera: (enabled: boolean) => void;
   cameraZoom: number;
   onCameraZoom: (zoom: number) => void;
+  firstPerson: boolean;
+  onFirstPerson: (enabled: boolean) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -155,9 +159,16 @@ export function RaceHud({
 
                 <section aria-labelledby="world-settings-heading">
                   <h2 id="world-settings-heading">World</h2>
-                  <button className="settings-row settings-row-button" type="button" onClick={onNight} aria-label={night ? 'Switch to golden hour' : 'Switch to night'}>
-                    <span><b>Time of day</b><small>Change the city lighting</small></span>
-                    <span className="settings-value">{night ? <Sun size={15} /> : <Moon size={15} />}{night ? 'Daylight' : 'Nightfall'}</span>
+                  <button className="settings-row settings-row-button" type="button" onClick={onTimeOfDay}
+                    aria-label="Change time of day">
+                    <span><b>Time of day</b><small>Automatic cycle, longer days</small></span>
+                    <span className="settings-value">
+                      {timeOfDay === 'cycle'
+                        ? <><Sunrise size={15} /> Cycle</>
+                        : timeOfDay === 'night'
+                          ? <><Moon size={15} /> Night</>
+                          : <><Sun size={15} /> Day</>}
+                    </span>
                   </button>
                   <label className="settings-row"><span><b>Sky preset</b><small>Weather and atmosphere</small></span>
                     <select aria-label="Sky and snow" value={sky}
@@ -171,6 +182,11 @@ export function RaceHud({
               </> : <>
                 <section aria-labelledby="camera-settings-heading">
                   <h2 id="camera-settings-heading"><Camera size={14} /> Camera</h2>
+                  <label className="settings-row settings-switch">
+                    <span><b>First person view</b><small>See your hands (or press V)</small></span>
+                    <input type="checkbox" checked={firstPerson}
+                      onChange={(event) => onFirstPerson(event.target.checked)} />
+                  </label>
                   <label className="settings-row settings-switch">
                     <span><b>Experimental camera</b><small>Keeps Spider-Man centered</small></span>
                     <input type="checkbox" checked={experimentalCamera}
