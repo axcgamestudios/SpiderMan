@@ -41,7 +41,10 @@ export class RenderQualityManager {
     // that is already blown should not stay that way for seconds on end.
     this.slowSeconds = this.averageMs > 23 ? this.slowSeconds + dt : 0;
     this.fastSeconds = this.averageMs < 18 ? this.fastSeconds + dt : 0;
-    const next = this.slowSeconds >= 1.5 ? Math.min(6, this.level + 1)
+    // A machine averaging under ~22 fps cannot afford one tier per step: it
+    // would spend fifteen seconds crawling up the ladder while unplayable.
+    const escalation = this.averageMs > 45 ? 2 : 1;
+    const next = this.slowSeconds >= 1.5 ? Math.min(6, this.level + escalation)
       : this.fastSeconds >= 8 ? Math.max(0, this.level - 1) : this.level;
     if (next === this.level) return false;
     this.level = next;

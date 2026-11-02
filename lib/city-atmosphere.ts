@@ -25,8 +25,16 @@ const PRESET_COLORS = new Map<
 const NIGHT_FOG = new THREE.Color('#18283e');
 const scratchFog = new THREE.Color();
 
+/** Minecraft-style view distance: the whole world is expected to fade into
+ * the sky well before the edge of the streamed 3x3 tile block, so nothing
+ * distant is ever worth drawing. The game retunes this per district tile
+ * size and again when the adaptive quality manager is under pressure. */
+const MIN_VIEW_RANGE = 320;
+const MAX_VIEW_RANGE = 900;
+
 /** Direction-space noise has no longitude wrap, texture edge, or skybox seam. */
 export function createCityAtmosphere(scene: THREE.Scene) {
+  let viewRange = 620;
   const u = {
     time: { value: 0 },
     night: { value: 0 },
@@ -88,10 +96,31 @@ export function createCityAtmosphere(scene: THREE.Scene) {
           t,
         );
         if (scene.fog instanceof THREE.Fog) {
-          scene.fog.near = preset === 'blizzard' ? 100 : 1000;
-          scene.fog.far = preset === 'blizzard' ? 1100 : 2600;
+          // Fog closes the world at the view range instead of 2.6 km out:
+          // everything beyond the streamed tiles melts into the sky, so the
+          // renderer never fills pixels for geometry the player cannot see.
+          const stormy = preset === 'blizzard' || preset === 'snow';
+          scene.fog.near = Math.max(
+            26,
+            viewRange * (stormy ? 0.16 : 0.42),
+          );
+          scene.fog.far = Math.max(
+            60,
+            viewRange * (stormy ? 0.62 : 1),
+          );
         }
       }
+    },
+    /** Retarget the playable view distance in metres (Minecraft-style). */
+    setViewRange(metres: number) {
+      viewRange = THREE.MathUtils.clamp(
+        Number.isFinite(metres) ? metres : viewRange,
+        MIN_VIEW_RANGE,
+        MAX_VIEW_RANGE,
+      );
+    },
+    get viewRange() {
+      return viewRange;
     },
     get night() {
       return u.night.value;

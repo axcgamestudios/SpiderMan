@@ -939,10 +939,14 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       let activeSuitId = props.suitId;
       let avatarLoadGeneration = 0;
       const scene = new THREE.Scene();
-      scene.fog = new THREE.Fog('#9acbe3', 1000, 2600);
+      // Minecraft-style fog wall: the world fades long before the old 2.6 km
+      // horizon. The exact range is retuned per district tile size every
+      // frame (atmosphere.setViewRange) so the streamed 3x3 block always
+      // covers everything visible.
+      scene.fog = new THREE.Fog('#9acbe3', 240, 620);
       const atmosphere = createCityAtmosphere(scene);
       const weather = new CityWeather(scene);
-      const camera = new THREE.PerspectiveCamera(66, 1, 0.08, 2800);
+      const camera = new THREE.PerspectiveCamera(66, 1, 0.08, 1200);
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         powerPreference: 'high-performance',
@@ -979,12 +983,12 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
       sun.position.copy(SUN_DIRECTION).multiplyScalar(620);
       sun.castShadow = true;
       sun.shadow.mapSize.set(2048, 2048);
-      sun.shadow.camera.left = -240;
-      sun.shadow.camera.right = 240;
-      sun.shadow.camera.top = 240;
-      sun.shadow.camera.bottom = -240;
+      sun.shadow.camera.left = -170;
+      sun.shadow.camera.right = 170;
+      sun.shadow.camera.top = 170;
+      sun.shadow.camera.bottom = -170;
       sun.shadow.camera.near = 20;
-      sun.shadow.camera.far = 1400;
+      sun.shadow.camera.far = 800;
       sun.shadow.bias = -0.0004;
       sun.shadow.normalBias = 0.9;
       scene.add(sun);
@@ -3627,6 +3631,29 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             ? 'blizzard'
             : requestedSky;
         lastFrameTime = timestamp;
+        // Minecraft-style view range, retuned every frame: the fog wall sits
+        // at ~1.4 streamed tiles so the 3x3 block always covers everything
+        // the player can see, and closes in further once the quality manager
+        // is deep in its degradation ladder. Distant geometry is then beyond
+        // the fog and costs nothing to draw.
+        {
+          const activeStream = districtStreams.get(currentDistrict);
+          if (activeStream) {
+            atmosphere.setViewRange(
+              activeStream.tileWidth *
+                1.42 *
+                (quality.settings.level >= 4 ? 0.72 : 1),
+            );
+          }
+          const targetFar = Math.min(
+            1600,
+            Math.max(760, atmosphere.viewRange + 420),
+          );
+          if (Math.abs(camera.far - targetFar) > 40) {
+            camera.far = targetFar;
+            camera.updateProjectionMatrix();
+          }
+        }
         if (paused) {
           if (!wasPaused) {
             wasPaused = true;
@@ -5064,7 +5091,10 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
               (1 - selectedPreset.clouds * 0.55) *
               screenFade *
               0.5 *
-              (reducedMotion ? 0 : 1);
+              // The ray pass renders the whole scene a second time into a
+              // multisampled HDR target. On a saturated machine it is the
+              // single most expensive effect, so it is the first to go.
+              (reducedMotion || quality.settings.level >= 2 ? 0 : 1);
             sunRayStrength = damp(sunRayStrength, targetStrength, 3, delta);
             speedBlur.setSunRays(
               sunRayNdc.x * 0.5 + 0.5,
@@ -5219,7 +5249,10 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
           weather.setDensity(q.weatherDensity);
           raceVisuals.setParticleDensity(q.particleDensity);
           speedBlur.setResolutionScale(q.postprocessScale);
-          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25) * q.resolutionScale);
+          renderer.setPixelRatio(
+            Math.min(window.devicePixelRatio, q.level >= 2 ? 1 : 1.25) *
+              q.resolutionScale,
+          );
           // Under frame pressure the instanced skyline first draws in closer
           // (fog already hides the difference), before resolution drops.
           horizonDetailFactor = q.farDetail;
@@ -5230,6 +5263,13 @@ export const SpiderGame = forwardRef<SpiderGameHandle, Props>(
             sun.shadow.map?.dispose();
             sun.shadow.map = null;
             sun.shadow.mapSize.set(shadowResolution, shadowResolution);
+          }
+          // A machine still sinking at tier 5 has nothing left to trade:
+          // drop shadows entirely. The fog wall hides the transition.
+          const shadowsEnabled = q.level < 5;
+          if (sun.castShadow !== shadowsEnabled) {
+            sun.castShadow = shadowsEnabled;
+            renderer.shadowMap.enabled = shadowsEnabled;
           }
           resize();
           renderer.domElement.dataset.qualityTier = String(q.level);
